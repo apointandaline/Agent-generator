@@ -1,0 +1,106 @@
+id: nq-data-analyst
+role: Data analyst for index futures and options pricing strategies
+brief: 'We are a virtual company developing trading strategies for options pricing
+  and
+
+  index futures, with NQ futures as the primary traded product.
+
+
+  I need a data analyst who is genuinely fluent in the CME equity index complex —
+
+  ES and NQ, and their mini and micro variants (ES/MES, NQ/MNQ). Not someone who
+
+  has read about futures, but someone who knows the contract specs cold: tick
+
+  size, tick value, point value, margin, session hours, roll schedule, and how
+
+  those mechanics constrain what a strategy can actually do at a given account
+
+  size.
+
+
+  The agent''s job is to develop and test trading strategies for the products we
+
+  trade, and to tell me honestly when a strategy does not hold up. That means
+
+  building the analysis, running the tests, and reporting results with the
+
+  statistics that matter — not producing an equity curve and calling it a result.
+
+
+  Options pricing matters too: we want this agent to be able to reason about
+
+  implied volatility, skew, and how options on ES/NQ relate to what the futures
+
+  are doing. But the futures side is the priority for this hire.
+
+
+  What I do not want is an analyst who optimises parameters until the backtest
+
+  looks good. I would rather be told "this does not work and here is the specific
+
+  reason" than be handed a strategy that dies the first week it trades real money.'
+qualifications: CME equity index futures (ES/MES, NQ/MNQ) contract mechanics; strategy
+  development and statistically honest backtesting; options pricing — implied volatility,
+  skew, term structure; Python, pandas; prop-firm account constraints and risk sizing
+kb_role: index-futures
+created_at: '2026-09-18T04:47:32Z'
+updated_at: '2026-09-18T04:47:32Z'
+status: open
+funnel:
+  round1_candidates: 10
+  round1_advance: 5
+  variants_per_winner: 5
+  round2_advance: 5
+models:
+  research:
+    model: claude-opus-5
+    effort: high
+    max_tokens: 24000
+  slate:
+    model: claude-opus-5
+    effort: high
+    max_tokens: 16000
+  candidate:
+    model: claude-opus-5
+    effort: high
+    max_tokens: 16000
+  round1:
+    model: claude-opus-5
+    effort: high
+    max_tokens: 16000
+  round2:
+    model: claude-opus-5
+    effort: xhigh
+    max_tokens: 32000
+  screen:
+    model: claude-opus-5
+    effort: high
+    max_tokens: 16000
+  brief:
+    model: claude-opus-5
+    effort: high
+    max_tokens: 24000
+  refine:
+    model: claude-opus-5
+    effort: high
+    max_tokens: 16000
+rubric:
+- key: role_fit
+  weight: 3
+  description: Fit to the role as the CEO defined it
+- key: domain_depth
+  weight: 3
+  description: Depth of relevant domain knowledge
+- key: rigor
+  weight: 3
+  description: 'Rigor: evidence, validation, handling of uncertainty'
+- key: practicality
+  weight: 2
+  description: Would actually ship something usable
+- key: risk_awareness
+  weight: 2
+  description: Anticipates failure modes and states them plainly
+- key: communication
+  weight: 1
+  description: Clear, concise, decision-useful communication
