@@ -19,6 +19,7 @@ from typing import Iterable
 from hire.store import Doc, now_iso, read_doc, repo_root, slugify
 
 
+
 @dataclass
 class Entry:
     id: str
@@ -45,6 +46,8 @@ class Entry:
     def summary(self, width: int = 100) -> str:
         first = next((ln.strip() for ln in self.body.splitlines() if ln.strip() and not ln.startswith("#")), "")
         return first[:width] + ("…" if len(first) > width else "")
+
+
 
 
 class KnowledgeBase:
@@ -118,6 +121,7 @@ class KnowledgeBase:
             meta["sources"] = sources
         path = Doc(meta=meta, body=body).write(self.entry_path(entry_id))
         return Entry(id=entry_id, path=path, meta=meta, body=body.strip())
+
 
     def context_for(self, role: str, max_chars: int = 24_000, limit: int = 12) -> str:
         """Assemble KB material for a role into a prompt block.

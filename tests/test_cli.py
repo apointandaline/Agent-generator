@@ -88,7 +88,6 @@ def test_backends_command_reports_availability(home, capsys, monkeypatch):
 
 
 def test_backend_choice_can_come_from_the_environment(home, monkeypatch):
-    from hire.backends import BackendError
 
     monkeypatch.setenv("HIRE_BACKEND", "codex-cli")
     monkeypatch.setattr("hire.backends.CodexCliBackend.available", classmethod(lambda cls: False))
@@ -198,4 +197,4 @@ def test_show_missing_file_fails_cleanly(home, capsys):
 def test_model_override_applies_to_every_stage(home):
     main(["open", "--id", "q", "--role", "QA", "--brief", "b", "--model", "claude-sonnet-5"])
     settings = Opening("q", home).settings()
-    assert all(settings.stage(name).model == "claude-sonnet-5" for name in ("round1", "round2", "screen"))
+    assert all(settings.stage(name).model == "claude-sonnet-5" for name in ("round1", "round2", "digest"))

@@ -176,7 +176,7 @@ def test_claude_json_call_appends_schema_instructions(monkeypatch):
     rec = Recorder(claude_payload('```json\n{"scores": {"a": 7}}\n```'))
     monkeypatch.setattr("hire.backends.subprocess.run", rec)
     schema = {"type": "object", "properties": {"scores": {"type": "object"}}}
-    result = ClaudeCliBackend().complete_json(spec(stage="screen"), schema)
+    result = ClaudeCliBackend().complete_json(spec(stage="digest"), schema)
     assert result.data == {"scores": {"a": 7}}
     assert "JSON Schema" in rec.argv[-1]
 

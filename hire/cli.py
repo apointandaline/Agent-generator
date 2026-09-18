@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from hire import backends, finalize, pipeline
-from hire.config import DEFAULT_RUBRIC, STAGES, default_stage_models
+from hire.config import STAGES, default_stage_models
 from hire.kb import KnowledgeBase
 from hire.llm import LLM
 from hire.report import cost_summary, next_step, status_report
@@ -96,7 +96,6 @@ def cmd_open(args) -> int:
             "round2_advance": args.round2_advance,
         },
         "models": {name: cfg.to_dict() for name, cfg in default_stage_models().items()},
-        "rubric": [dict(item) for item in DEFAULT_RUBRIC],
     }
     if args.model:
         for name in STAGES:
@@ -150,8 +149,8 @@ def cmd_round1(args) -> int:
         concurrency=_concurrency(args, llm),
         dry_run=args.dry_run,
     )
-    if not args.dry_run and not args.no_screen:
-        pipeline.run_screen(opening, llm, 1, concurrency=_concurrency(args, llm))
+    if not args.dry_run and not args.no_digest:
+        pipeline.run_digest(opening, llm, 1, concurrency=_concurrency(args, llm))
     if not args.dry_run:
         print(f"\nNext: {next_step(opening)}")
     return 0
@@ -186,17 +185,17 @@ def cmd_round2(args) -> int:
         max_turns=args.max_turns,
         dry_run=args.dry_run,
     )
-    if not args.dry_run and not args.no_screen:
-        pipeline.run_screen(opening, llm, 2, concurrency=_concurrency(args, llm))
+    if not args.dry_run and not args.no_digest:
+        pipeline.run_digest(opening, llm, 2, concurrency=_concurrency(args, llm))
     if not args.dry_run:
         print(f"\nNext: {next_step(opening)}")
     return 0
 
 
-def cmd_screen(args) -> int:
+def cmd_digest(args) -> int:
     opening = _opening(args)
     llm = _llm(opening, args, args.dry_run)
-    pipeline.run_screen(
+    pipeline.run_digest(
         opening, llm, args.round,
         concurrency=_concurrency(args, llm), dry_run=args.dry_run,
     )
@@ -433,7 +432,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("opening")
     p.add_argument("--prompt-file", required=True, help="markdown file with your mock project prompt")
     p.add_argument("--only", help="limit to these candidate ids")
-    p.add_argument("--no-screen", action="store_true", help="skip the advisory scoring pass")
+    p.add_argument("--no-digest", action="store_true", help="skip the digest/comparison pass")
     add_common(p)
     p.set_defaults(func=cmd_round1)
 
@@ -446,15 +445,15 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--yes", action="store_true", help="skip the --allow-exec confirmation")
     p.add_argument("--exec-timeout", type=int, default=120, help="per-command timeout in seconds")
     p.add_argument("--max-turns", type=int, default=40, help="tool-use turns per candidate")
-    p.add_argument("--no-screen", action="store_true")
+    p.add_argument("--no-digest", action="store_true")
     add_common(p, conc=4)
     p.set_defaults(func=cmd_round2)
 
-    p = subs.add_parser("screen", help="re-run the advisory scoring for a round")
+    p = subs.add_parser("digest", help="extract each answer and compare the slate")
     p.add_argument("opening")
     p.add_argument("--round", type=int, required=True, choices=[1, 2])
     add_common(p)
-    p.set_defaults(func=cmd_screen)
+    p.set_defaults(func=cmd_digest)
 
     p = subs.add_parser("shortlist", help="record YOUR decision on who advances")
     p.add_argument("opening")

@@ -18,7 +18,6 @@ from typing import Any, Iterable
 import yaml
 
 from hire.config import (
-    DEFAULT_RUBRIC,
     DEFAULT_VARIANT_AXES,
     FunnelConfig,
     Settings,
@@ -141,11 +140,11 @@ class Opening:
     def prompt_path(self, rnd: int) -> Path:
         return self.round_dir(rnd) / ("prompt.md" if rnd == 1 else "project.md")
 
-    def scorecards_path(self, rnd: int) -> Path:
-        return self.round_dir(rnd) / "scorecards.json"
+    def digests_path(self, rnd: int) -> Path:
+        return self.round_dir(rnd) / "digests.json"
 
-    def leaderboard_path(self, rnd: int) -> Path:
-        return self.round_dir(rnd) / "leaderboard.md"
+    def comparison_path(self, rnd: int) -> Path:
+        return self.round_dir(rnd) / "comparison.md"
 
     def decision_path(self, rnd: int) -> Path:
         return self.round_dir(rnd) / "decision.yaml"
@@ -195,7 +194,6 @@ class Opening:
         return Settings(
             stages=stages,
             funnel=funnel,
-            rubric=spec.get("rubric") or [dict(r) for r in DEFAULT_RUBRIC],
             variant_axes=spec.get("variant_axes") or list(DEFAULT_VARIANT_AXES),
         )
 

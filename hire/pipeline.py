@@ -9,7 +9,7 @@ from hire import prompts
 from hire.config import CALL_SHAPES, price
 from hire.kb import KnowledgeBase
 from hire.llm import LLM, log, parallel
-from hire.report import leaderboard_md, rank
+from hire.report import digest_md as report_digest_md
 from hire.store import Doc, Opening, now_iso, read_doc, write_text, write_yaml
 from hire.workspace import Workspace
 
@@ -447,11 +447,11 @@ def run_round2(
 
 
 # --------------------------------------------------------------------------- #
-# Screening (advisory)
+# Digest and aggregation
 # --------------------------------------------------------------------------- #
 
 
-def run_screen(
+def run_digest(
     opening: Opening,
     llm: LLM,
     rnd: int,
@@ -459,33 +459,40 @@ def run_screen(
     concurrency: int = 6,
     dry_run: bool = False,
 ) -> dict[str, dict]:
+    """Extract each answer's content, then aggregate the slate into one comparison.
+
+    Nothing here scores or ranks. Pass one records what each candidate said; pass
+    two finds where the slate genuinely splits. The CEO reads and decides.
+    """
     spec = opening.load()
     settings = opening.settings()
-    cfg = settings.stage("screen")
-    rubric = settings.rubric
+    cfg = settings.stage("digest")
     task_path = opening.prompt_path(rnd)
     if not task_path.exists():
         raise RuntimeError(
-            f"round {rnd} has not been run yet — no {task_path.name} to screen against"
+            f"round {rnd} has not been run yet — no {task_path.name} to digest against"
         )
     task = task_path.read_text(encoding="utf-8")
 
-    responses = sorted(opening.responses_dir(rnd).glob("*.md")) if opening.responses_dir(rnd).exists() else []
+    responses = (
+        sorted(opening.responses_dir(rnd).glob("*.md"))
+        if opening.responses_dir(rnd).exists()
+        else []
+    )
     if not responses:
-        raise RuntimeError(f"no round-{rnd} responses to screen — run the round first")
+        raise RuntimeError(f"no round-{rnd} responses to digest — run the round first")
     if dry_run:
-        log(f"[dry-run] screen round {rnd}: {len(responses)} calls, "
-            f"~${estimate('screen', len(responses), cfg.model):.2f}")
+        log(f"[dry-run] digest round {rnd}: {len(responses)} extraction calls + "
+            f"1 aggregation, ~${estimate('digest', len(responses), cfg.model) + estimate('aggregate', 1, settings.stage('aggregate').model):.2f}")
         return {}
 
-    schema = prompts.screen_schema(rubric)
-    # The rubric and task are identical across candidates — cache that prefix.
+    # The task and system prompt are identical across candidates — cache that prefix.
     system = [
-        {"type": "text", "text": prompts.SCREEN_SYSTEM, "cache_control": {"type": "ephemeral"}}
+        {"type": "text", "text": prompts.DIGEST_SYSTEM, "cache_control": {"type": "ephemeral"}}
     ]
-    ids = [p.stem for p in responses]
+    ids = [path.stem for path in responses]
 
-    def assess(cid: str) -> dict:
+    def extract(cid: str) -> dict:
         answer = read_doc(opening.response_path(rnd, cid)).body
         candidate = opening.load_candidate(rnd, cid)
         artifacts = ""
@@ -494,41 +501,53 @@ def run_screen(
             if ws_dir.exists():
                 artifacts = Workspace(ws_dir).digest()
         result = llm.json(
-            "screen",
+            "digest",
             cfg,
             system=system,
-            prompt=prompts.screen_prompt(
-                rnd, spec["role"], spec.get("brief", ""), task,
-                candidate.body, answer, rubric, artifacts,
+            prompt=prompts.digest_prompt(
+                rnd, spec["role"], task, candidate.body, answer, artifacts
             ),
-            schema=schema,
+            schema=prompts.DIGEST_SCHEMA,
             label=cid,
         )
         return result.data
 
-    log(f"Screening {len(ids)} round-{rnd} submissions (advisory)…")
-    outcomes = parallel(ids, assess, concurrency=concurrency, label="screen")
-    scorecards = {item: value for item, value, error in outcomes if error is None}
+    log(f"Digesting {len(ids)} round-{rnd} answers via {llm.name}…")
+    outcomes = parallel(ids, extract, concurrency=concurrency, label="digest")
+    digests = {item: value for item, value, error in outcomes if error is None}
     failed = [item for item, _, error in outcomes if error is not None]
     if failed:
-        log(f"! {len(failed)} screenings failed: {', '.join(failed)}")
+        log(f"! {len(failed)} digests failed: {', '.join(failed)}")
+    if not digests:
+        raise RuntimeError("every digest failed — nothing to aggregate")
 
-    write_text(opening.scorecards_path(rnd), json.dumps(scorecards, indent=2))
+    write_text(opening.digests_path(rnd), json.dumps(digests, indent=2))
+
+    log(f"Aggregating {len(digests)} digests into one comparison…")
+    blob = "\n\n".join(
+        f"### Candidate `{cid}`\n{json.dumps(digest, indent=2)}"
+        for cid, digest in sorted(digests.items())
+    )
+    comparison = llm.text(
+        "aggregate",
+        settings.stage("aggregate"),
+        system=prompts.AGGREGATE_SYSTEM,
+        prompt=prompts.aggregate_prompt(rnd, spec["role"], task, blob, len(digests)),
+        label=f"round{rnd}",
+    ).text
+
     advance_target = (
         settings.funnel.round1_advance if rnd == 1 else settings.funnel.round2_advance
     )
-    board = leaderboard_md(
-        opening.id, rnd, spec["role"], scorecards, rubric, advance_target
+    write_text(
+        opening.comparison_path(rnd),
+        report_digest_md(opening.id, rnd, spec["role"], digests, comparison, advance_target),
     )
-    write_text(opening.leaderboard_path(rnd), board)
-    log(f"→ {opening.leaderboard_path(rnd)}")
-
-    top = rank(scorecards, rubric)[: advance_target * 2]
+    log(f"→ {opening.comparison_path(rnd)}")
     log("")
-    log(f"Top {len(top)} by advisory score — you decide who actually advances:")
-    for index, (cid, score, card) in enumerate(top, start=1):
-        log(f"  {index:>2}. {cid:<12} {score:>5}  {card.get('one_line', '')[:80]}")
-    return scorecards
+    log(f"Read the comparison, then advance {advance_target} with "
+        f"`hire shortlist {opening.id} --round {rnd} --advance <ids>`")
+    return digests
 
 
 def record_decision(

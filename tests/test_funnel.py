@@ -9,7 +9,6 @@ import pytest
 from fake_backend import FakeBackend
 from hire.llm import LLM
 from hire import finalize, pipeline
-from hire.report import rank, weighted_score
 from hire.store import Opening, now_iso, read_doc
 
 
@@ -50,18 +49,18 @@ def full_run(tmp_path):
     prompt = tmp_path / "mock.md"
     prompt.write_text("Build a walk-forward backtest harness for a momentum strategy.")
     pipeline.run_round1(opening, llm, prompt, concurrency=3)
-    cards1 = pipeline.run_screen(opening, llm, 1, concurrency=3)
+    digests1 = pipeline.run_digest(opening, llm, 1, concurrency=3)
 
-    winners = [cid for cid, _, _ in rank(cards1, opening.settings().rubric)][:2]
+    winners = sorted(digests1)[:2]
     pipeline.record_decision(opening, 1, winners, general_notes="Liked the bias hunters.")
 
     pipeline.generate_round2(opening, llm, concurrency=3)
     project = tmp_path / "project.md"
     project.write_text("Write a test suite that catches look-ahead bias.")
     pipeline.run_round2(opening, llm, project, concurrency=2)
-    cards2 = pipeline.run_screen(opening, llm, 2, concurrency=3)
+    digests2 = pipeline.run_digest(opening, llm, 2, concurrency=3)
 
-    finalists = [cid for cid, _, _ in rank(cards2, opening.settings().rubric)][:2]
+    finalists = sorted(digests2)[:2]
     pipeline.record_decision(opening, 2, finalists, notes={finalists[0]: "Best artifacts."})
     finalize.run_round3(opening, llm)
     paths = finalize.hire_candidate(
@@ -102,13 +101,32 @@ def test_round1_interviews_every_candidate(full_run):
     assert opening.prompt_path(1).read_text().startswith("Build a walk-forward")
 
 
-def test_screening_produces_a_leaderboard_that_says_it_is_advisory(full_run):
+def test_the_comparison_aggregates_without_scoring(full_run):
     opening = full_run["opening"]
-    board = opening.leaderboard_path(1).read_text()
-    assert "advisory" in board.lower()
-    assert "hire shortlist" in board
-    cards = json.loads(opening.scorecards_path(1).read_text())
-    assert len(cards) == 6
+    doc = opening.comparison_path(1).read_text()
+    assert "hire shortlist" in doc
+    assert "Nothing here is a score or a ranking" in doc
+    # Each candidate's own content must survive into the comparison.
+    for cid in opening.candidate_ids(1):
+        assert f"`{cid}`" in doc
+    assert "priced the hedge" in doc, "the distinctive field must reach the page"
+    digests = json.loads(opening.digests_path(1).read_text())
+    assert len(digests) == 6
+    assert "scores" not in next(iter(digests.values()))
+
+
+def test_nothing_in_the_pipeline_ranks_candidates(full_run):
+    """The CEO ranks. The tool must not hand back an order dressed as a verdict."""
+    doc = full_run["opening"].comparison_path(1).read_text().lower()
+    for word in ("leaderboard", "/10", "weighted score", "top 5"):
+        assert word not in doc
+
+
+def test_the_aggregation_sees_every_digest(full_run):
+    prompts_seen = full_run["backend"].prompts_for("aggregate")
+    assert len(prompts_seen) == 2, "one aggregation per round"
+    for cid in full_run["opening"].candidate_ids(1):
+        assert cid in prompts_seen[0]
 
 
 def test_round2_regenerates_variants_seeded_from_the_winners(full_run):
@@ -248,7 +266,8 @@ def test_the_opening_records_the_hire(full_run):
 def test_every_call_lands_in_the_cost_ledger(full_run):
     entries = full_run["opening"].ledger()
     stages = {e["stage"] for e in entries}
-    assert {"research", "slate", "candidate", "round1", "round2", "screen", "brief", "refine"} <= stages
+    assert {"research", "slate", "candidate", "round1", "round2", "digest",
+            "aggregate", "brief", "refine"} <= stages
     assert len(entries) == len(full_run["backend"].calls)
     assert all(e["cost_usd"] > 0 for e in entries)
 
@@ -299,11 +318,19 @@ def test_an_empty_prompt_file_is_refused(tmp_path):
         pipeline.run_round1(opening, llm, empty)
 
 
-def test_weighted_score_uses_the_rubric_weights():
-    rubric = [{"key": "a", "weight": 3, "description": ""}, {"key": "b", "weight": 1, "description": ""}]
-    assert weighted_score({"a": 8, "b": 4}, rubric) == 7.0
-    assert weighted_score({"a": 8}, rubric) == 8.0
-    assert weighted_score({}, rubric) == 0.0
+def test_kb_material_reaches_candidate_generation(tmp_path):
+    """House knowledge for the role must land in the candidates' own prompts."""
+    from hire.kb import KnowledgeBase
+
+    opening = make_opening(tmp_path)
+    opening.update(kb_role="quant-qa")
+    KnowledgeBase(tmp_path).add(
+        "House execution assumptions", "We assume 1.5 ticks of slippage on stops.",
+        role="quant-qa",
+    )
+    backend = FakeBackend()
+    pipeline.generate_round1(opening, LLM(backend=backend), count=2, concurrency=1)
+    assert all("1.5 ticks of slippage" in p for p in backend.prompts_for("candidate"))
 
 
 def test_dry_run_makes_no_calls(tmp_path):

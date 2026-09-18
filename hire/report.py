@@ -3,94 +3,66 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Sequence
 
 from hire.config import PRICING
 from hire.store import Opening, now_iso
 
 
-def weighted_score(scores: dict, rubric: Sequence[dict]) -> float:
-    """Rubric-weighted mean on a 1-10 scale. Missing lines are skipped."""
-    total_weight = 0.0
-    total = 0.0
-    for item in rubric:
-        if item["key"] in scores:
-            weight = float(item["weight"])
-            total += float(scores[item["key"]]) * weight
-            total_weight += weight
-    return round(total / total_weight, 2) if total_weight else 0.0
-
-
-def rank(scorecards: dict[str, dict], rubric: Sequence[dict]) -> list[tuple[str, float, dict]]:
-    ranked = [
-        (cid, weighted_score(card.get("scores", {}), rubric), card)
-        for cid, card in scorecards.items()
-    ]
-    return sorted(ranked, key=lambda row: row[1], reverse=True)
-
-
-def leaderboard_md(
+def digest_md(
     opening_id: str,
     rnd: int,
     role: str,
-    scorecards: dict[str, dict],
-    rubric: Sequence[dict],
+    digests: dict[str, dict],
+    comparison: str,
     advance_target: int,
 ) -> str:
-    ranked = rank(scorecards, rubric)
-    keys = [item["key"] for item in rubric]
-    header = "| # | candidate | score | " + " | ".join(keys) + " | one-line read |"
-    divider = "|---" * (4 + len(keys)) + "|"
-    rows = []
-    for index, (cid, score, card) in enumerate(ranked, start=1):
-        scores = card.get("scores", {})
-        cells = " | ".join(str(scores.get(key, "–")) for key in keys)
-        one_line = str(card.get("one_line", "")).replace("|", "/").strip()
-        rows.append(f"| {index} | `{cid}` | **{score}** | {cells} | {one_line} |")
-
+    """The round's comparison document: the aggregate, then every digest."""
     lines = [
-        f"# Round {rnd} leaderboard — {opening_id}",
+        f"# Round {rnd} comparison — {opening_id}",
         "",
         f"**Role:** {role}  ",
         f"**Generated:** {now_iso()}  ",
-        f"**Candidates assessed:** {len(ranked)}",
+        f"**Answers digested:** {len(digests)}",
         "",
-        "> These scores are **advisory**. They exist so you can triage a large slate,",
-        "> not to pick for you. Read the top candidates' actual answers before deciding,",
-        f"> then record your picks with `hire shortlist {opening_id} --round {rnd} --advance <ids>`.",
-        f"> You said you want to advance **{advance_target}** from this round.",
-        "",
-        header,
-        divider,
-        *rows,
+        "> Nothing here is a score or a ranking. These are the candidates' own",
+        "> positions, extracted and grouped so you can see where the slate splits.",
+        f"> You advance **{advance_target}**; read the answers of anyone this makes",
+        "> look interesting, then run",
+        f"> `hire shortlist {opening_id} --round {rnd} --advance <ids>`.",
         "",
         "---",
         "",
-        "## Candidate detail",
+        comparison.strip(),
+        "",
+        "---",
+        "",
+        "## Every answer, digested",
         "",
     ]
 
-    for index, (cid, score, card) in enumerate(ranked, start=1):
-        strengths = [f"- {s}" for s in card.get("strengths", [])] or ["- (none recorded)"]
-        concerns = [f"- {c}" for c in card.get("concerns", [])] or ["- (none recorded)"]
+    for cid in sorted(digests):
+        d = digests[cid]
         lines += [
-            f"### {index}. `{cid}` — {score}",
+            f"### `{cid}` — {d.get('headline', '')}",
             "",
-            f"*{card.get('one_line', '')}*",
+            f"**Their verdict:** {d.get('verdict', '—')}",
             "",
-            f"**Distinctive:** {card.get('distinctive', '—')}",
-            "",
-            f"**Best used for:** {card.get('best_used_for', '—')}",
-            "",
-            "**Strengths**",
-            *strengths,
-            "",
-            "**Concerns**",
-            *concerns,
-            "",
-            f"**Probe to ask:** {card.get('interview_probe', '—')}",
+            f"**Only they said:** {d.get('distinctive', '—')}",
             "",
         ]
+        for label, key in (
+            ("Approach", "approach"),
+            ("Specifics they named", "key_specifics"),
+            ("Where they pushed back", "pushback"),
+            ("What they need from you", "asks"),
+            ("Risks they raised", "risks_named"),
+            ("Not addressed", "not_addressed"),
+        ):
+            items = d.get(key) or []
+            lines.append(f"**{label}**")
+            lines += [f"- {item}" for item in items] or ["- (none recorded)"]
+            lines.append("")
+        lines += [f"**Stated uncertainty:** {d.get('stated_uncertainty', '—')}", ""]
     return "\n".join(lines) + "\n"
 
 
@@ -158,7 +130,7 @@ def status_report(opening: Opening) -> str:
         candidates = opening.candidate_ids(rnd)
         responses = list(opening.responses_dir(rnd).glob("*.md")) if opening.responses_dir(rnd).exists() else []
         prompt = opening.prompt_path(rnd)
-        scored = opening.scorecards_path(rnd).exists()
+        scored = opening.digests_path(rnd).exists()
         try:
             advanced = opening.advanced(rnd)
         except FileNotFoundError:
@@ -168,7 +140,7 @@ def status_report(opening: Opening) -> str:
             f"- [{'x' if prompt.exists() else ' '}] round {rnd} "
             f"{'mock project prompt' if rnd == 1 else 'technical project'}",
             f"- [{'x' if responses else ' '}] round {rnd} interviews conducted: {len(responses)}",
-            f"- [{'x' if scored else ' '}] round {rnd} screened",
+            f"- [{'x' if scored else ' '}] round {rnd} digested",
             f"- [{'x' if advanced else ' '}] round {rnd} CEO decision: "
             + (", ".join(f"`{a}`" for a in advanced) if advanced else "pending"),
         ]
@@ -198,13 +170,13 @@ def next_step(opening: Opening) -> str:
         )
     if not list(opening.responses_dir(1).glob("*.md")):
         return f"`hire round1 {oid} --prompt-file <file.md>`"
-    if not opening.scorecards_path(1).exists():
-        return f"`hire screen {oid} --round 1`"
+    if not opening.digests_path(1).exists():
+        return f"`hire digest {oid} --round 1`"
     try:
         opening.advanced(1)
     except FileNotFoundError:
         return (
-            f"Read `openings/{oid}/round1/leaderboard.md` and the answers, then "
+            f"Read `openings/{oid}/round1/comparison.md` and the answers, then "
             f"`hire shortlist {oid} --round 1 --advance c07,c19,...`"
         )
     if not opening.candidate_ids(2):
@@ -214,8 +186,8 @@ def next_step(opening: Opening) -> str:
             f"Write your technical project, then "
             f"`hire round2 {oid} --project-file <file.md>`"
         )
-    if not opening.scorecards_path(2).exists():
-        return f"`hire screen {oid} --round 2`"
+    if not opening.digests_path(2).exists():
+        return f"`hire digest {oid} --round 2`"
     try:
         opening.advanced(2)
     except FileNotFoundError:

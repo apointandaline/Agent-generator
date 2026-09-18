@@ -377,112 +377,175 @@ and say you are finished.
 
 
 # --------------------------------------------------------------------------- #
-# Scoring (advisory)
+# Digest and aggregation — extraction, not judgement
 # --------------------------------------------------------------------------- #
 
-SCREEN_SYSTEM = """\
-You are an interview assessor. You do not make hiring decisions and you never \
-imply that you do — the CEO decides who advances. Your job is to give the CEO an \
-accurate, unflattering read so they can compare candidates quickly.
+DIGEST_SYSTEM = """\
+You extract what a candidate actually said, so the CEO can compare answers \
+without reading all of them end to end first.
 
-Standards:
-- Score against the rubric, not against how polished the writing is.
-- Confident vagueness is a serious defect. Say so when you see it.
-- Reward candidates who name specifics, state assumptions and surface risks they \
-  were not asked about.
-- Penalise any answer that would produce a confidently wrong result in a trading \
-  context.
-- Be comparable across candidates: use the full range of the scale, and reserve \
-  the top of it for work that genuinely earns it."""
+You are not an assessor. You do not rate, rank, score, praise or criticise, and \
+you never say whether an answer is good. Someone else decides that. Your output \
+is a faithful, compressed record of the submission's content.
 
+Rules:
+- Every field must be traceable to something the candidate wrote. If they did not \
+  address something, say so plainly rather than inferring what they would think.
+- Preserve their specifics: the actual numbers, tools, methods and terms they used. \
+  A digest that replaces "100 points against a 420-point ATR" with "did the risk \
+  arithmetic" has destroyed the thing the CEO needs.
+- Keep their framing, including where it is unusual or where it contradicts the \
+  brief. Do not normalise an odd answer into a conventional one.
+- Where the candidate hedged, record the hedge. Where they committed, record the \
+  commitment. The difference matters and is not yours to smooth over."""
 
-def screen_schema(rubric: Sequence[dict]) -> dict:
-    score_props = {
-        item["key"]: {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 10,
-            "description": item["description"],
-        }
-        for item in rubric
-    }
-    return {
-        "type": "object",
-        "properties": {
-            "scores": {
-                "type": "object",
-                "properties": score_props,
-                "required": list(score_props),
-                "additionalProperties": False,
-            },
-            "one_line": {
-                "type": "string",
-                "description": "one sentence the CEO can scan in a list of 50",
-            },
-            "strengths": {"type": "array", "items": {"type": "string"}},
-            "concerns": {"type": "array", "items": {"type": "string"}},
-            "distinctive": {
-                "type": "string",
-                "description": "what this candidate offers that most others will not",
-            },
-            "best_used_for": {
-                "type": "string",
-                "description": "the kind of work this agent would be genuinely good at",
-            },
-            "interview_probe": {
-                "type": "string",
-                "description": "the one question the CEO should ask to test this candidate's weak point",
-            },
+DIGEST_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {
+            "type": "string",
+            "description": "The candidate's own bottom-line conclusion, in one sentence, in their terms.",
         },
-        "required": [
-            "scores",
-            "one_line",
-            "strengths",
-            "concerns",
-            "distinctive",
-            "best_used_for",
-            "interview_probe",
-        ],
-        "additionalProperties": False,
-    }
+        "headline": {
+            "type": "string",
+            "description": "One scannable line capturing what is distinctive about this answer. Descriptive, not evaluative.",
+        },
+        "approach": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "The steps or phases they said they would work through, in their order.",
+        },
+        "key_specifics": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "The concrete numbers, tools, methods, metrics and terms of art they named. Quote figures exactly.",
+        },
+        "pushback": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Where they disagreed with, corrected or reframed the brief. Empty if they did not.",
+        },
+        "asks": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "What they said they need from the CEO, and what they said they would assume without it.",
+        },
+        "risks_named": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "The failure modes they raised themselves.",
+        },
+        "distinctive": {
+            "type": "string",
+            "description": "The content in this answer you would not expect to find in the others. Factual, not a compliment.",
+        },
+        "not_addressed": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Things the task raised that this answer does not cover. Observation, not criticism.",
+        },
+        "stated_uncertainty": {
+            "type": "string",
+            "description": "What they flagged as unknown, assumed, remembered rather than measured, or needing verification.",
+        },
+    },
+    "required": [
+        "verdict",
+        "headline",
+        "approach",
+        "key_specifics",
+        "pushback",
+        "asks",
+        "risks_named",
+        "distinctive",
+        "not_addressed",
+        "stated_uncertainty",
+    ],
+    "additionalProperties": False,
+}
 
 
-def screen_prompt(
-    rnd: int,
-    role: str,
-    brief: str,
-    task: str,
-    candidate_body: str,
-    answer: str,
-    rubric: Sequence[dict],
-    artifacts: str = "",
-) -> str:
-    rubric_lines = "\n".join(f"- {r['key']} (weight {r['weight']}): {r['description']}" for r in rubric)
+def digest_prompt(rnd: int, role: str, task: str, candidate_body: str, answer: str,
+                  artifacts: str = "") -> str:
     artifact_block = f"\n\n## Artifacts the candidate produced\n{artifacts}" if artifacts else ""
     kind = "written approach" if rnd == 1 else "executed technical project"
     return f"""\
-Assess this candidate's {kind} for the CEO.
+Extract a digest of this candidate's {kind}.
 
 ## Role
 {role}
 
-## CEO's brief for the role
-{brief}
-
-## The task the candidate was given
+## The task they were given
 {task}
 
 ## The candidate's own operating instructions
 {candidate_body}
 
-## The candidate's submission
+## Their submission
 {answer}{artifact_block}
 
-## Rubric
-{rubric_lines}
+Record what is there. Do not evaluate it.
+"""
 
-Score 1-10 on each rubric line. A 5 is competent-but-unremarkable; an 8+ must be \
-justified by something specific in the submission.
+
+AGGREGATE_SYSTEM = """\
+You aggregate a slate of interview answers into one comparison for the CEO.
+
+Your job is to find the structure in the slate: where candidates genuinely split, \
+where they converged, and who stands alone. You do not rank them and you do not \
+say who is better — the CEO reads the answers and decides. You make that reading \
+efficient by showing them where the real differences are.
+
+What makes an aggregation useful:
+- **Axes of genuine disagreement.** An axis is only worth naming if candidates \
+  actually land in different places on it. Two candidates phrasing the same position \
+  differently is not an axis.
+- **Unanimity is information.** When nearly every candidate independently says the \
+  same thing, say so and say what it was — it usually means the task made it \
+  unavoidable, which tells the CEO something about their own question.
+- **Outliers matter more than the middle.** A lone position, right or wrong, is the \
+  most decision-relevant thing in a slate.
+- **Never flatten.** If the slate is genuinely homogeneous, report that plainly. \
+  It is the most useful thing you could tell the CEO, because it means the question \
+  did not separate anyone."""
+
+
+def aggregate_prompt(rnd: int, role: str, task: str, digests: str, count: int) -> str:
+    return f"""\
+Aggregate this slate of {count} round-{rnd} answers into one comparison.
+
+## Role
+{role}
+
+## The task all of them were given
+{task}
+
+## The digests
+{digests}
+
+Produce markdown with exactly these sections:
+
+## How the slate splits
+The axes on which candidates genuinely take different positions. For each axis: \
+name it, state the positions, and list which candidate ids hold each. Order the axes \
+by how consequential the difference is. If there are no real axes, say so and stop \
+this section there.
+
+## What everyone said
+The claims, framings or moves that nearly all candidates made independently. For each, \
+note how many made it and whether any candidate did not.
+
+## Who stands alone
+Candidates holding a position no one else holds, or raising something no one else \
+raised. One entry each, naming the candidate id and the position.
+
+## Coverage
+A table: candidate id | their verdict in a few words | what they alone contributed | \
+what their answer does not cover.
+
+## What this slate does not tell you
+What the CEO still cannot distinguish between these candidates on, given this task. \
+Be concrete about what a follow-up question would have to probe.
 """
 
 

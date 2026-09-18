@@ -26,13 +26,17 @@ CALL_SHAPES: dict[str, tuple[int, int]] = {
     "candidate": (6_000, 4_000),
     "round1": (5_000, 3_500),
     "round2": (40_000, 20_000),
-    "screen": (8_000, 1_500),
+    "digest": (8_000, 1_500),
+    "aggregate": (20_000, 6_000),
     "brief": (30_000, 8_000),
     "refine": (12_000, 5_000),
 }
 
 #: Stages whose model and effort can be tuned per opening.
-STAGES = ("research", "slate", "candidate", "round1", "round2", "screen", "brief", "refine")
+STAGES = (
+    "research", "slate", "candidate", "round1", "round2", "digest", "aggregate",
+    "brief", "refine",
+)
 
 #: Axes used to diversify the round-2 descendants of each round-1 winner.
 DEFAULT_VARIANT_AXES = [
@@ -83,24 +87,12 @@ class FunnelConfig:
         }
 
 
-#: Scoring rubric. Weights are normalised at use, so they need not sum to 1.
-DEFAULT_RUBRIC: list[dict] = [
-    {"key": "role_fit", "weight": 3, "description": "Fit to the role as the CEO defined it"},
-    {"key": "domain_depth", "weight": 3, "description": "Depth of relevant domain knowledge"},
-    {"key": "rigor", "weight": 3, "description": "Rigor: evidence, validation, handling of uncertainty"},
-    {"key": "practicality", "weight": 2, "description": "Would actually ship something usable"},
-    {"key": "risk_awareness", "weight": 2, "description": "Anticipates failure modes and states them plainly"},
-    {"key": "communication", "weight": 1, "description": "Clear, concise, decision-useful communication"},
-]
-
-
 @dataclass
 class Settings:
     """Resolved settings for one opening."""
 
     stages: dict[str, StageConfig] = field(default_factory=dict)
     funnel: FunnelConfig = field(default_factory=FunnelConfig)
-    rubric: list[dict] = field(default_factory=lambda: [dict(r) for r in DEFAULT_RUBRIC])
     variant_axes: list[str] = field(default_factory=lambda: list(DEFAULT_VARIANT_AXES))
 
     def stage(self, name: str) -> StageConfig:

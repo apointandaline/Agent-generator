@@ -92,15 +92,17 @@ class FakeBackend(Backend):
             }
             self._slate_n += want
         else:
-            keys = list(schema["properties"]["scores"]["properties"])
             data = {
-                "scores": {key: 7 for key in keys},
-                "one_line": f"a read of {spec.label}",
-                "strengths": ["specific"],
-                "concerns": ["vague in places"],
-                "distinctive": "distinctive thing",
-                "best_used_for": "backtest review",
-                "interview_probe": "how would you detect look-ahead bias?",
+                "verdict": f"{spec.label} says the mandate does not hold as written",
+                "headline": f"a digest of {spec.label}",
+                "approach": ["measure first", "then model"],
+                "key_specifics": ["100 points", "ATR 420"],
+                "pushback": ["the brief understates the drawdown rule"],
+                "asks": ["the actual rulebook"],
+                "risks_named": ["overnight gap"],
+                "distinctive": f"only {spec.label} priced the hedge",
+                "not_addressed": ["options skew"],
+                "stated_uncertainty": "ATR figure is from memory",
             }
         return BackendResult(
             text="{}", usage=dict(USAGE), model="fake-model", cost_usd=0.01, data=data

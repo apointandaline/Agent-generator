@@ -8,14 +8,31 @@ from pathlib import Path
 from hire import prompts
 from hire.llm import LLM, log
 from hire.pipeline import estimate
-from hire.report import weighted_score
 from hire.store import Doc, Opening, now_iso, read_doc, slugify, write_text
 from hire.workspace import Workspace
 
 
-def _scorecards(opening: Opening, rnd: int) -> dict:
-    path = opening.scorecards_path(rnd)
+def _digests(opening: Opening, rnd: int) -> dict:
+    path = opening.digests_path(rnd)
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+
+
+def _digest_lines(digest: dict) -> list[str]:
+    """Render one candidate's digest for the brief, without adding a judgement."""
+    if not digest:
+        return ["- (no digest on file)"]
+    out = [f"- verdict: {digest.get('verdict', '—')}",
+           f"- only they said: {digest.get('distinctive', '—')}"]
+    for label, key in (
+        ("pushed back on", "pushback"),
+        ("asked for", "asks"),
+        ("risks they raised", "risks_named"),
+        ("did not address", "not_addressed"),
+    ):
+        items = digest.get(key) or []
+        out.append(f"- {label}: {'; '.join(items) if items else '—'}")
+    out.append(f"- stated uncertainty: {digest.get('stated_uncertainty', '—')}")
+    return out
 
 
 def _round1_ancestor(opening: Opening, candidate_id: str) -> str:
@@ -30,9 +47,8 @@ def _round1_ancestor(opening: Opening, candidate_id: str) -> str:
 
 def build_dossiers(opening: Opening, finalists: list[str], per_section: int = 9_000) -> str:
     """Assemble everything known about each finalist for the brief."""
-    settings = opening.settings()
-    cards1 = _scorecards(opening, 1)
-    cards2 = _scorecards(opening, 2)
+    digests1 = _digests(opening, 1)
+    digests2 = _digests(opening, 2)
     chunks: list[str] = []
 
     for cid in finalists:
@@ -44,10 +60,8 @@ def build_dossiers(opening: Opening, finalists: list[str], per_section: int = 9_
         ws_dir = opening.workspace(cid)
         tree = Workspace(ws_dir).list() if ws_dir.exists() else "(no workspace)"
 
-        card1 = cards1.get(parent, {})
-        card2 = cards2.get(cid, {})
-        score1 = weighted_score(card1.get("scores", {}), settings.rubric) if card1 else None
-        score2 = weighted_score(card2.get("scores", {}), settings.rubric) if card2 else None
+        digest1 = digests1.get(parent, {})
+        digest2 = digests2.get(cid, {})
 
         chunks.append(
             "\n".join(
@@ -58,8 +72,12 @@ def build_dossiers(opening: Opening, finalists: list[str], per_section: int = 9_
                     f"- specialisation axis: {doc.meta.get('axis', '—')}",
                     f"- declared specialties: {', '.join(doc.meta.get('specialties', [])) or '—'}",
                     f"- self-declared weakness: {doc.meta.get('declared_weakness', '—')}",
-                    f"- advisory score, round 1 (as `{parent}`): {score1 if score1 is not None else '—'}",
-                    f"- advisory score, round 2: {score2 if score2 is not None else '—'}",
+                    "",
+                    f"### Round-1 digest (as `{parent}`)",
+                    *_digest_lines(digest1),
+                    "",
+                    "### Round-2 digest",
+                    *_digest_lines(digest2),
                     "",
                     "### Its system prompt",
                     doc.body[:per_section],
@@ -75,11 +93,7 @@ def build_dossiers(opening: Opening, finalists: list[str], per_section: int = 9_
                     tree,
                     "```",
                     "",
-                    "### Assessor notes, round 2",
-                    f"- strengths: {'; '.join(card2.get('strengths', [])) or '—'}",
-                    f"- concerns: {'; '.join(card2.get('concerns', [])) or '—'}",
-                    f"- best used for: {card2.get('best_used_for', '—')}",
-                    "",
+
                 ]
             )
         )
@@ -246,15 +260,10 @@ def hire_candidate(
 
 def _dossier(opening: Opening, candidate_id: str, doc: Doc, name: str, notes: str) -> str:
     settings = opening.settings()
-    cards1, cards2 = _scorecards(opening, 1), _scorecards(opening, 2)
+    digests1, digests2 = _digests(opening, 1), _digests(opening, 2)
     parent = doc.meta.get("parent", "")
-    card1, card2 = cards1.get(parent, {}), cards2.get(candidate_id, {})
+    digest1, digest2 = digests1.get(parent, {}), digests2.get(candidate_id, {})
     funnel = settings.funnel
-
-    def fmt(card: dict) -> str:
-        if not card:
-            return "—"
-        return f"{weighted_score(card.get('scores', {}), settings.rubric)} — {card.get('one_line', '')}"
 
     return "\n".join(
         [
@@ -268,13 +277,14 @@ def _dossier(opening: Opening, candidate_id: str, doc: Doc, name: str, notes: st
             f"*{doc.meta.get('axis', '—')}*; one of {funnel.round2_candidates}",
             f"- Round 3: chosen from {len(opening.advanced(2))} finalists by the CEO",
             "",
-            "## Advisory scores",
-            f"- Round 1 (as `{parent}`): {fmt(card1)}",
-            f"- Round 2: {fmt(card2)}",
+            "## What it said in the interviews",
+            f"- Round 1 verdict (as `{parent}`): {digest1.get('verdict', '—')}",
+            f"- Round 2 verdict: {digest2.get('verdict', '—')}",
+            f"- Distinctive to this candidate: {digest2.get('distinctive', '—')}",
             "",
-            "## What the assessor flagged",
-            f"- Strengths: {'; '.join(card2.get('strengths', [])) or '—'}",
-            f"- Concerns to supervise: {'; '.join(card2.get('concerns', [])) or '—'}",
+            "## What to supervise",
+            f"- Did not address: {'; '.join(digest2.get('not_addressed', [])) or '—'}",
+            f"- Its own stated uncertainty: {digest2.get('stated_uncertainty', '—')}",
             f"- Self-declared weakness: {doc.meta.get('declared_weakness', '—')}",
             "",
             "## CEO's notes at hire",
@@ -285,6 +295,7 @@ def _dossier(opening: Opening, candidate_id: str, doc: Doc, name: str, notes: st
             f"- Round-1 answer: `openings/{opening.id}/round1/responses/{parent}.md`",
             f"- Round-2 submission: `openings/{opening.id}/round2/responses/{candidate_id}.md`",
             f"- Round-2 artifacts: `openings/{opening.id}/round2/workspaces/{candidate_id}/`",
+            f"- Round-1 comparison: `openings/{opening.id}/round1/comparison.md`",
             f"- Executive brief: `openings/{opening.id}/round3/exec-brief.md`",
             "",
         ]

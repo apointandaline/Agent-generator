@@ -8,18 +8,24 @@ Nothing advances a round except a recorded decision from you. `hire shortlist`
 and `hire hire` are the only commands that move the funnel forward, and neither
 consults a model.
 
-The screening pass exists because reading 50 interview answers carefully is not
-a realistic ask. It scores each submission independently against a rubric and
-gives you a leaderboard, a one-line read per candidate, and — most usefully — a
-probe question aimed at each candidate's weak point. Treat it as a research
-assistant's triage, not a verdict. The assessor is told explicitly that it does
-not make hiring decisions, and the leaderboard repeats this at the top.
+`hire digest` exists because reading 50 answers cold is not a realistic ask. It
+does **not** score or rank them. It runs in two passes:
 
-Two habits make the advisory scores more useful:
+1. **Extraction**, once per candidate: what they concluded, the approach they
+   described, the specifics they named, where they pushed back on your brief,
+   what they asked you for, and what their answer does not cover. Every field is
+   traceable to something they wrote.
+2. **Aggregation**, once over the whole slate: where candidates genuinely split,
+   what nearly all of them said, and who holds a position alone.
 
-- **Read outside the top 5.** The scorer rewards rigor and specificity. A
-  candidate with an unusual angle and a mediocre score is often the one worth
-  advancing, and it is exactly what a ranked list buries.
+That second pass is the useful one. A slate of fifty answers has maybe three or
+four real axes of disagreement in it, and those axes are what you are actually
+choosing between. The aggregation names them and tells you who is where.
+
+Two habits:
+
+- **Go to the outliers first.** A lone position is the most decision-relevant
+  thing in a slate, and it is what any summary of the middle will bury.
 - **Write real notes when you shortlist.** They are not a record — they are fed
   into round-2 generation as instructions. "Keep the skepticism, lose the
   hedging language" measurably changes what the next 5 descendants look like.
@@ -61,55 +67,35 @@ Edit `variant_axes` in `opening.yaml` to change them. They are the main lever on
 what round 2 explores, and they are worth tailoring per role — the axes that
 matter for a PM agent are not the ones that matter for QA.
 
-## The knowledge base can neutralise your interview question
+## Writing the round-1 prompt
 
-This is the trap that is easiest to walk into, and the first live run walked
-straight into it.
+Keep it short and open. The prompt is a situation, not a specification.
 
-The `nq-data-analyst` opening asked candidates how they would build a daily NQ
-strategy on a $50k prop account with a $2,000 trailing drawdown. That mandate is
-arithmetically unsound — $2,000 ÷ $20 per NQ point = 100 points of total room,
-against a daily ATR of roughly 410-450 points — and the question was designed so
-that noticing this would separate candidates who know the product from candidates
-reciting a generic backtesting process.
+The temptation is to write a detailed brief with a flaw planted in it and see who
+finds the flaw. Don't. That tests puzzle-solving, and it tells you about one
+narrow reflex rather than about how the agent works. It also collapses the slate:
+a planted problem has one correct answer, so every candidate who finds it writes
+the same answer, and you learn nothing about the differences that matter when you
+actually use the agent.
 
-It separated nobody. All ten led with the arithmetic. The advisory scores landed
-in a 0.79-point band, and the `risk_awareness` rubric line came back **9 out of 10
-for every single candidate — a spread of zero.**
+What you want from round 1 is how a candidate *thinks*: what they look at first,
+what they consider worth asking about, what they treat as obvious, where they
+spend their attention. Those only show up when you leave room for them.
 
-The cause was the knowledge base. The `index-futures` entries spell out the sizing
-formula and the MNQ alternative explicitly, and KB material for the role is fed
-into candidate generation — so every candidate's system prompt already contained
-the answer before the question was asked. The question tested retrieval, not
-judgement.
+So give them the situation and little else:
 
-The rule: **a round-1 question must not be answerable from the KB entries that
-role draws on.** Before writing the prompt, grep the entries the opening will
-pull in. If the answer is there, pick one of:
+- The circumstance, in a few sentences of plain description.
+- What you want to end up with.
+- Nothing about method, and no hints about what is hard.
 
-- Move the material out of the KB and let the question discriminate. Candidates
-  who know it from their own archetype are the signal you wanted.
-- Keep the KB and ask something it does not pre-answer — a judgement call, a
-  trade-off with no correct answer, a situation where the candidate must decide
-  what to do about a constraint rather than notice it.
-- Ask the follow-up instead of the question. Everyone can compute 100 points;
-  far fewer can say what they would actually do next and defend it against the
-  obvious objection.
+Under-specify deliberately. If you leave out the constraint you care most about,
+you find out whether the candidate asks for it — and a candidate who names the
+missing piece unprompted has told you more than one who solves a puzzle you set.
+The "What I'd need from you" section of the answer is usually the most
+discriminating part of the whole round for exactly this reason.
 
-A zero-spread rubric line is the diagnostic. If one comes back flat across the
-slate, that line tested nothing, and the round was narrower than it looked.
-
-## Choosing what to give candidates
-
-**The mock project (round 1)** should be a real situation with a trap in it. The
-example — a suspiciously good backtest whose author mentions in passing that they
-tried several lookback windows — works because the tell is stated plainly but
-never flagged. Candidates that notice it are showing you something.
-
-**The technical project (round 2)** should be scoped to something genuinely
-finishable. Candidates work under a turn budget; an over-scoped project produces
-25 half-finished submissions that are hard to tell apart. Ask for fewer things,
-done properly, and say so in the brief.
+If the answers come back looking interchangeable, the prompt was too specified.
+Cut it down rather than adding to it.
 
 ## The knowledge base is the long-term asset
 
@@ -131,8 +117,8 @@ first.
 
 ## Cost, realistically
 
-Round 1 is 50 candidate generations plus 50 interviews plus 50 screenings, all
-on the default model. Round 2 is 25 agent sessions that each run a multi-turn
+Round 1 is 50 candidate generations plus 50 interviews plus 50 digest
+extractions and one aggregation, all on the default model. Round 2 is 25 agent sessions that each run a multi-turn
 build loop, which is the most variable cost in the system by a wide margin.
 
 Use `--dry-run` before every expensive step. If you want to spend less, the right
@@ -184,8 +170,9 @@ CLI call spawns a whole process. `--concurrency` overrides it.
 - **A failed candidate is skipped, not retried.** Generation and interview
   rounds report failures and carry on, so one API error cannot sink a 50-way
   round. Re-run the same command with `--only <ids>` to fill the gaps.
-- **Advisory scores are not comparable across openings.** The scorer calibrates
-  within a slate, not across them.
+- **The digest can only report what an answer contains.** It does not infer what
+  a candidate would have said, and it will not tell you an answer is weak — that
+  reading is yours.
 - **CLI backends cannot be held to a JSON schema.** Their structured replies are
   recovered by parsing. A malformed reply fails that one call, which is reported
   and skipped rather than retried.

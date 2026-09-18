@@ -59,7 +59,7 @@ matters to you.
 
 **Structured output is enforced only on `api`.** The CLI backends are asked for
 JSON and their replies are recovered from prose or code fences. That is reliable
-in practice but not guaranteed, so a screening call can occasionally fail and be
+in practice but not guaranteed, so a digest call can occasionally fail and be
 reported as a skipped candidate.
 
 ## The workflow
@@ -74,8 +74,9 @@ hire open --id quant-qa \
 ```
 
 Your brief is the single most important input. Be specific about what the agent
-is *for* and what a bad outcome looks like. `examples/opening-brief-quant-qa.md`
-shows the level of detail that works.
+is *for* and what a bad outcome looks like; `templates/opening-brief.md` lays out
+what to cover. Note the asymmetry: the **brief** should be detailed, the
+**round-1 prompt** should not.
 
 ### 2. Research the role
 
@@ -102,7 +103,8 @@ system prompt; the frontmatter is its résumé.
 
 ### 4. Round 1 — the discussion
 
-Write a mock project prompt (see `examples/round1-mock-project.md`), then:
+Write a mock project prompt — keep it short and open, and see
+`templates/round1-prompt.md` for why — then:
 
 ```bash
 hire round1 quant-qa --prompt-file examples/round1-mock-project.md
@@ -111,10 +113,11 @@ hire round1 quant-qa --prompt-file examples/round1-mock-project.md
 Every candidate answers *as itself*, using its own system prompt, describing how
 it would approach your project. Answers land in `round1/responses/`.
 
-A screening pass then scores all 50 against a rubric and writes
-`round1/leaderboard.md`. **Those scores are advisory** — they exist so you can
-triage 50 answers, not so the model can pick for you. Read the top candidates'
-actual answers, then record your decision:
+`hire digest` then reads all 50 and writes `round1/comparison.md`. It does **not**
+score or rank them: one pass extracts what each candidate actually said, and a
+second pass aggregates the slate into the axes on which candidates genuinely
+split, what nearly all of them said, and who stands alone. Read it, read the
+answers it makes you curious about, then record your decision:
 
 ```bash
 hire shortlist quant-qa --round 1 \
@@ -226,7 +229,6 @@ its full turn budget building software costs many times one that finishes early.
 
 - `funnel:` — the 50 / 5 / 25 / 5 / 1 counts
 - `models:` — per-stage model, effort and token budget
-- `rubric:` — what the advisory screening scores, and the weights
 - `variant_axes:` — the five directions round-2 descendants are pushed in
 
 Everything defaults to `claude-opus-5`. If you want to spend less on the wide
@@ -243,7 +245,7 @@ round-1 pass, set `models.candidate.model` and `models.round1.model` to
 | `hire generate <id> --round {1,2}` | Generate candidates |
 | `hire round1 <id> --prompt-file F` | Run the discussion round |
 | `hire round2 <id> --project-file F` | Run the build round |
-| `hire screen <id> --round N` | Re-run advisory scoring |
+| `hire digest <id> --round N` | Extract each answer, compare the slate |
 | `hire shortlist <id> --round N --advance IDS` | **Record your decision** |
 | `hire round3 <id>` | Build the executive brief |
 | `hire hire <id> --candidate ID --name N` | Hire, and emit the agent |
