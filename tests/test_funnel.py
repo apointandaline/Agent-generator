@@ -6,7 +6,8 @@ import json
 
 import pytest
 
-from fake_llm import FakeLLM
+from fake_backend import FakeBackend
+from hire.llm import LLM
 from hire import finalize, pipeline
 from hire.report import rank, weighted_score
 from hire.store import Opening, now_iso, read_doc
@@ -33,14 +34,15 @@ def make_opening(tmp_path, **funnel):
 
 
 def llm_for(opening):
-    return FakeLLM(on_usage=opening.log_usage)
+    return LLM(backend=FakeBackend(), on_usage=opening.log_usage)
 
 
 @pytest.fixture
 def full_run(tmp_path):
     """Run the funnel end to end and hand back everything it produced."""
     opening = make_opening(tmp_path)
-    llm = llm_for(opening)
+    backend = FakeBackend()
+    llm = LLM(backend=backend, on_usage=opening.log_usage)
 
     pipeline.run_research(opening, llm)
     pipeline.generate_round1(opening, llm, count=6, concurrency=3)
@@ -65,7 +67,7 @@ def full_run(tmp_path):
     paths = finalize.hire_candidate(
         opening, llm, finalists[0], "backtest-qa", notes="Always report bias checks first."
     )
-    return {"opening": opening, "llm": llm, "winners": winners,
+    return {"opening": opening, "llm": llm, "backend": backend, "winners": winners,
             "finalists": finalists, "paths": paths, "tmp": tmp_path}
 
 
@@ -125,23 +127,17 @@ def test_round2_regenerates_variants_seeded_from_the_winners(full_run):
 def test_variant_generation_is_seeded_with_the_parent_and_the_ceos_notes(tmp_path):
     """The round-1 winner markdown and the CEO's notes must reach the prompt."""
     opening = make_opening(tmp_path)
-    llm = llm_for(opening)
+    backend = FakeBackend()
+    llm = LLM(backend=backend, on_usage=opening.log_usage)
     pipeline.generate_round1(opening, llm, count=6, concurrency=2)
     prompt = tmp_path / "mock.md"
     prompt.write_text("mock project")
     pipeline.run_round1(opening, llm, prompt, concurrency=2)
     pipeline.record_decision(opening, 1, ["c01"], notes={"c01": "Push harder on data hygiene."})
 
-    seen = []
-    original = llm.text
-
-    def spy(stage, cfg, *, system, prompt, label="", prefill_messages=None):
-        if stage == "candidate":
-            seen.append(prompt)
-        return original(stage, cfg, system=system, prompt=prompt, label=label)
-
-    llm.text = spy
+    backend.specs.clear()
     pipeline.generate_round2(opening, llm, concurrency=1)
+    seen = backend.prompts_for("candidate")
     assert seen, "round 2 must generate candidates"
     assert all("Lineage" in p for p in seen)
     assert all("Push harder on data hygiene." in p for p in seen)
@@ -167,58 +163,53 @@ def test_round2_transcripts_are_saved(full_run):
         assert json.loads(path.read_text())[0]["name"] == "write_file"
 
 
+def _to_round2(tmp_path, opening, llm):
+    """Fast-forward an opening to the point where round 2 can run."""
+    pipeline.generate_round1(opening, llm, count=2, concurrency=1)
+    prompt = tmp_path / "p.md"
+    prompt.write_text("p")
+    pipeline.run_round1(opening, llm, prompt, concurrency=1)
+    pipeline.record_decision(opening, 1, ["c01"])
+    pipeline.generate_round2(opening, llm, concurrency=1)
+    project = tmp_path / "proj.md"
+    project.write_text("build it")
+    return project
+
+
 def test_exec_stays_disabled_unless_asked(tmp_path):
     opening = make_opening(tmp_path)
-    llm = llm_for(opening)
-    pipeline.generate_round1(opening, llm, count=2, concurrency=1)
-    prompt = tmp_path / "p.md"
-    prompt.write_text("p")
-    pipeline.run_round1(opening, llm, prompt, concurrency=1)
-    pipeline.record_decision(opening, 1, ["c01"])
-    pipeline.generate_round2(opening, llm, concurrency=1)
+    backend = FakeBackend()
+    llm = LLM(backend=backend, on_usage=opening.log_usage)
+    project = _to_round2(tmp_path, opening, llm)
 
-    seen = {}
-
-    def spy(stage, cfg, *, system, prompt, tools, execute, max_turns=40, label="", on_step=None):
-        seen["tools"] = [t["name"] for t in tools]
-        seen["prompt"] = prompt
-        return llm.__class__.agent_loop(
-            llm, stage, cfg, system=system, prompt=prompt, tools=tools,
-            execute=execute, max_turns=max_turns, label=label,
-        )
-
-    llm.agent_loop = spy
-    project = tmp_path / "proj.md"
-    project.write_text("build it")
     pipeline.run_round2(opening, llm, project, concurrency=1)
-    assert "run_command" not in seen["tools"]
-    assert "DISABLED" in seen["prompt"]
+    assert backend.builds, "round 2 must reach the backend"
+    assert all(b["allow_exec"] is False for b in backend.builds)
+    assert all("DISABLED" in b["prompt"] for b in backend.builds)
 
 
-def test_exec_tool_is_offered_when_enabled(tmp_path):
+def test_exec_is_passed_through_when_enabled(tmp_path):
     opening = make_opening(tmp_path)
-    llm = llm_for(opening)
-    pipeline.generate_round1(opening, llm, count=2, concurrency=1)
-    prompt = tmp_path / "p.md"
-    prompt.write_text("p")
-    pipeline.run_round1(opening, llm, prompt, concurrency=1)
-    pipeline.record_decision(opening, 1, ["c01"])
-    pipeline.generate_round2(opening, llm, concurrency=1)
+    backend = FakeBackend()
+    llm = LLM(backend=backend, on_usage=opening.log_usage)
+    project = _to_round2(tmp_path, opening, llm)
 
-    seen = {}
-
-    def spy(stage, cfg, *, system, prompt, tools, execute, max_turns=40, label="", on_step=None):
-        seen["tools"] = [t["name"] for t in tools]
-        return llm.__class__.agent_loop(
-            llm, stage, cfg, system=system, prompt=prompt, tools=tools,
-            execute=execute, max_turns=max_turns, label=label,
-        )
-
-    llm.agent_loop = spy
-    project = tmp_path / "proj.md"
-    project.write_text("build it")
     pipeline.run_round2(opening, llm, project, concurrency=1, allow_exec=True)
-    assert "run_command" in seen["tools"]
+    assert all(b["allow_exec"] is True for b in backend.builds)
+    assert all("DISABLED" not in b["prompt"] for b in backend.builds)
+
+
+def test_each_candidate_builds_in_its_own_workspace(tmp_path):
+    opening = make_opening(tmp_path)
+    backend = FakeBackend()
+    llm = LLM(backend=backend, on_usage=opening.log_usage)
+    project = _to_round2(tmp_path, opening, llm)
+
+    pipeline.run_round2(opening, llm, project, concurrency=1)
+    roots = {b["root"] for b in backend.builds}
+    assert len(roots) == len(backend.builds), "workspaces must not be shared"
+    for build in backend.builds:
+        assert build["root"].name == build["label"]
 
 
 def test_exec_brief_covers_every_finalist(full_run):
@@ -258,21 +249,22 @@ def test_every_call_lands_in_the_cost_ledger(full_run):
     entries = full_run["opening"].ledger()
     stages = {e["stage"] for e in entries}
     assert {"research", "slate", "candidate", "round1", "round2", "screen", "brief", "refine"} <= stages
-    assert len(entries) == len(full_run["llm"].calls)
+    assert len(entries) == len(full_run["backend"].calls)
     assert all(e["cost_usd"] > 0 for e in entries)
 
 
 def test_a_failed_candidate_does_not_sink_the_round(tmp_path):
     opening = make_opening(tmp_path)
-    llm = llm_for(opening)
-    original = llm.text
+    backend = FakeBackend()
+    llm = LLM(backend=backend, on_usage=opening.log_usage)
+    original = backend.complete
 
-    def flaky(stage, cfg, *, system, prompt, label="", prefill_messages=None):
-        if stage == "candidate" and label == "c03":
+    def flaky(spec):
+        if spec.stage == "candidate" and spec.label == "c03":
             raise RuntimeError("simulated API failure")
-        return original(stage, cfg, system=system, prompt=prompt, label=label)
+        return original(spec)
 
-    llm.text = flaky
+    backend.complete = flaky
     made = pipeline.generate_round1(opening, llm, count=6, concurrency=3)
     assert "c03" not in made
     assert len(made) == 5
@@ -316,8 +308,8 @@ def test_weighted_score_uses_the_rubric_weights():
 
 def test_dry_run_makes_no_calls(tmp_path):
     opening = make_opening(tmp_path)
-    llm = llm_for(opening)
+    backend = FakeBackend()
     pipeline.generate_round1(opening, None, count=50, dry_run=True)
     pipeline.run_research(opening, None, dry_run=True)
     assert opening.candidate_ids(1) == []
-    assert llm.calls == []
+    assert backend.calls == []

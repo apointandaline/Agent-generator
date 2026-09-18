@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
-from hire import finalize, pipeline
+from hire import backends, finalize, pipeline
 from hire.config import DEFAULT_RUBRIC, STAGES, default_stage_models
 from hire.kb import KnowledgeBase
-from hire.llm import LLM, has_credentials, make_client
+from hire.llm import LLM
 from hire.report import cost_summary, next_step, status_report
 from hire.store import Opening, list_openings, now_iso, repo_root, slugify
 
@@ -28,16 +29,23 @@ def _opening(args) -> Opening:
     return opening
 
 
-def _llm(opening: Opening, dry_run: bool = False) -> LLM | None:
-    """Build a usage-logging LLM, or None for a dry run."""
+def _llm(opening: Opening, args=None, dry_run: bool = False) -> LLM | None:
+    """Build a usage-logging LLM on the requested backend, or None for a dry run."""
     if dry_run:
         return None
-    if not has_credentials():
-        raise CLIError(
-            "no Anthropic credentials found. Export ANTHROPIC_API_KEY, or run "
-            "`ant auth login`. Use --dry-run to estimate cost without calling the API."
-        )
-    return LLM(client=make_client(), on_usage=opening.log_usage)
+    choice = getattr(args, "backend", None) or os.environ.get("HIRE_BACKEND", "auto")
+    try:
+        llm = LLM(backend=choice, on_usage=opening.log_usage)
+    except backends.BackendError as exc:
+        raise CLIError(str(exc)) from exc
+    return llm
+
+
+def _concurrency(args, llm: LLM | None) -> int:
+    """Honour an explicit --concurrency, else follow the backend's own default."""
+    if getattr(args, "concurrency", None):
+        return args.concurrency
+    return llm.concurrency if llm else 4
 
 
 def _ids(value: str | None) -> list[str] | None:
@@ -103,7 +111,7 @@ def cmd_research(args) -> int:
     opening = _opening(args)
     pipeline.run_research(
         opening,
-        _llm(opening, args.dry_run),
+        _llm(opening, args, args.dry_run),
         focus=args.focus or "",
         max_uses=args.max_uses,
         dry_run=args.dry_run,
@@ -115,12 +123,12 @@ def cmd_research(args) -> int:
 
 def cmd_generate(args) -> int:
     opening = _opening(args)
-    llm = _llm(opening, args.dry_run)
+    llm = _llm(opening, args, args.dry_run)
     if args.round == 1:
         count = args.count or opening.settings().funnel.round1_candidates
-        pipeline.generate_round1(opening, llm, count, args.concurrency, args.dry_run)
+        pipeline.generate_round1(opening, llm, count, _concurrency(args, llm), args.dry_run)
     elif args.round == 2:
-        pipeline.generate_round2(opening, llm, args.concurrency, args.dry_run)
+        pipeline.generate_round2(opening, llm, _concurrency(args, llm), args.dry_run)
     else:
         raise CLIError("--round must be 1 or 2 (round 3 has no candidate generation)")
     if not args.dry_run:
@@ -133,17 +141,17 @@ def cmd_round1(args) -> int:
     prompt_file = Path(args.prompt_file)
     if not prompt_file.exists():
         raise CLIError(f"no such file: {prompt_file}")
-    llm = _llm(opening, args.dry_run)
+    llm = _llm(opening, args, args.dry_run)
     pipeline.run_round1(
         opening,
         llm,
         prompt_file,
         only=_ids(args.only),
-        concurrency=args.concurrency,
+        concurrency=_concurrency(args, llm),
         dry_run=args.dry_run,
     )
     if not args.dry_run and not args.no_screen:
-        pipeline.run_screen(opening, llm, 1, concurrency=args.concurrency)
+        pipeline.run_screen(opening, llm, 1, concurrency=_concurrency(args, llm))
     if not args.dry_run:
         print(f"\nNext: {next_step(opening)}")
     return 0
@@ -166,20 +174,20 @@ def cmd_round2(args) -> int:
         if input("Enable command execution? [y/N] ").strip().lower() not in ("y", "yes"):
             print("Aborted. Re-run without --allow-exec for a no-execution round.")
             return 1
-    llm = _llm(opening, args.dry_run)
+    llm = _llm(opening, args, args.dry_run)
     pipeline.run_round2(
         opening,
         llm,
         project_file,
         only=_ids(args.only),
-        concurrency=args.concurrency,
+        concurrency=_concurrency(args, llm),
         allow_exec=args.allow_exec,
         exec_timeout=args.exec_timeout,
         max_turns=args.max_turns,
         dry_run=args.dry_run,
     )
     if not args.dry_run and not args.no_screen:
-        pipeline.run_screen(opening, llm, 2, concurrency=args.concurrency)
+        pipeline.run_screen(opening, llm, 2, concurrency=_concurrency(args, llm))
     if not args.dry_run:
         print(f"\nNext: {next_step(opening)}")
     return 0
@@ -187,9 +195,10 @@ def cmd_round2(args) -> int:
 
 def cmd_screen(args) -> int:
     opening = _opening(args)
+    llm = _llm(opening, args, args.dry_run)
     pipeline.run_screen(
-        opening, _llm(opening, args.dry_run), args.round,
-        concurrency=args.concurrency, dry_run=args.dry_run,
+        opening, llm, args.round,
+        concurrency=_concurrency(args, llm), dry_run=args.dry_run,
     )
     if not args.dry_run:
         print(f"\nNext: {next_step(opening)}")
@@ -224,7 +233,7 @@ def cmd_shortlist(args) -> int:
 
 def cmd_round3(args) -> int:
     opening = _opening(args)
-    finalize.run_round3(opening, _llm(opening, args.dry_run), dry_run=args.dry_run)
+    finalize.run_round3(opening, _llm(opening, args, args.dry_run), dry_run=args.dry_run)
     if not args.dry_run:
         print(f"\nNext: {next_step(opening)}")
     return 0
@@ -238,7 +247,7 @@ def cmd_hire(args) -> int:
     refine = not args.no_refine
     paths = finalize.hire_candidate(
         opening,
-        _llm(opening, args.dry_run) if refine else None,
+        _llm(opening, args, args.dry_run) if refine else None,
         args.candidate,
         args.name,
         notes=notes,
@@ -249,6 +258,25 @@ def cmd_hire(args) -> int:
     if not args.dry_run:
         print(f"\nHired. The agent's system prompt is {paths['agent'].relative_to(repo_root())}")
         print(f"Add skills to {paths['skills'].relative_to(repo_root())}/ as you use it.")
+    return 0
+
+
+def cmd_backends(args) -> int:
+    usable = backends.detect()
+    print("Backend        available  notes")
+    rows = {
+        "api": "Anthropic SDK; needs ANTHROPIC_API_KEY or an `ant` profile",
+        "claude-cli": "`claude -p` subprocess; uses the Claude Code CLI's own login",
+        "codex-cli": "`codex exec` subprocess; uses the Codex CLI's own login",
+    }
+    for name, note in rows.items():
+        mark = "yes" if name in usable else "no "
+        print(f"{name:<14} {mark:<10} {note}")
+    print()
+    if usable:
+        print(f"`--backend auto` would choose: {usable[0]}")
+    else:
+        print("No backend is usable here. Install a CLI and sign in, or set ANTHROPIC_API_KEY.")
     return 0
 
 
@@ -363,8 +391,11 @@ def build_parser() -> argparse.ArgumentParser:
         if dry:
             sub.add_argument("--dry-run", action="store_true", help="estimate cost, call nothing")
         if conc is not None:
-            sub.add_argument("--concurrency", type=int, default=conc,
-                             help=f"parallel API calls (default {conc})")
+            sub.add_argument("--concurrency", type=int, default=None,
+                             help="parallel calls (default: the backend's own, "
+                                  "6 for api, 4 for the CLI backends)")
+        sub.add_argument("--backend", choices=["auto", *backends.BACKENDS],
+                         help="which model backend to drive (default: auto, or $HIRE_BACKEND)")
 
     p = subs.add_parser("init", help="create the directory layout")
     p.set_defaults(func=cmd_init)
@@ -449,6 +480,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="emit the candidate file as-is instead of refining it")
     add_common(p, conc=None)
     p.set_defaults(func=cmd_hire)
+
+    p = subs.add_parser("backends", help="show which model backends are usable here")
+    p.set_defaults(func=cmd_backends)
 
     p = subs.add_parser("status", help="where an opening stands, and what to run next")
     p.add_argument("opening", nargs="?")

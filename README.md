@@ -23,9 +23,44 @@ answers to "what should this agent actually be" before you commit to one.
 
 ```bash
 pip install -e .          # or: pip install -r requirements.txt
-export ANTHROPIC_API_KEY=sk-ant-...   # or run `ant auth login`
 hire init
+hire backends             # what can drive the model here
 ```
+
+## Backends — you do not need an API key
+
+The funnel can be driven three ways. `hire backends` shows which are usable, and
+`--backend` (or `$HIRE_BACKEND`) picks one; the default is `auto`.
+
+| Backend | Needs | Notes |
+|---|---|---|
+| `api` | `ANTHROPIC_API_KEY`, or an `ant auth login` profile | Cheapest per call. Structured outputs are schema-enforced. |
+| `claude-cli` | the `claude` CLI, signed in | Uses the Claude Code CLI's own credentials — no key of your own. |
+| `codex-cli` | the `codex` CLI, signed in | Same idea for OpenAI's CLI. |
+
+`auto` prefers `api` when credentials exist and falls back to whichever CLI is
+installed, so a machine with `claude` already signed in can run the whole funnel
+with no further setup.
+
+**The CLI backends cost more per call.** Each one spawns a fresh agent session
+that re-sends its own system prompt — roughly 20k cache-write tokens per call
+even with `--restricted`, so a trivial call has a floor of several cents. They
+are the right choice when you have a CLI subscription and no API key, or when you
+want round 2 run by a real coding agent.
+
+**Round 2 differs by backend.** On `api`, candidates get the confined
+`write_file` / `read_file` / `list_files` tools in this repo and `--allow-exec`
+adds a sandboxed `run_command`. On the CLI backends, the agent works natively in
+the workspace directory with its own file tools, which generally produces better
+builds. One caveat: Codex needs `workspace-write` to create files at all, and
+that sandbox also permits commands inside the workspace — so a Codex round 2 is
+never strictly no-execution. Use `api` or `claude-cli` if that distinction
+matters to you.
+
+**Structured output is enforced only on `api`.** The CLI backends are asked for
+JSON and their replies are recovered from prose or code fences. That is reliable
+in practice but not guaranteed, so a screening call can occasionally fail and be
+reported as a skipped candidate.
 
 ## The workflow
 
@@ -216,6 +251,7 @@ round-1 pass, set `models.candidate.model` and `models.round1.model` to
 | `hire cost <id>` | Estimated spend by stage |
 | `hire show <id> --candidate ID [--response]` | Print a candidate or an answer |
 | `hire kb ...` | Inspect and extend the knowledge base |
+| `hire backends` | Show which model backends are usable here |
 
 ## Tests
 
@@ -223,5 +259,6 @@ round-1 pass, set `models.candidate.model` and `models.round1.model` to
 python -m pytest tests/ -q
 ```
 
-The suite drives the entire funnel against a fake model, so it runs offline and
-costs nothing. The live API paths are exercised by the CLI, not by the tests.
+The suite drives the entire funnel against a fake backend, so it runs offline and
+costs nothing. The CLI backends' argv construction and output parsing are tested
+against a recorded subprocess; the live paths are exercised by running the tool.

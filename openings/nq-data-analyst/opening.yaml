@@ -45,8 +45,8 @@ qualifications: CME equity index futures (ES/MES, NQ/MNQ) contract mechanics; st
   skew, term structure; Python, pandas; prop-firm account constraints and risk sizing
 kb_role: index-futures
 created_at: '2026-09-18T04:47:32Z'
-updated_at: '2026-09-18T04:47:32Z'
-status: open
+updated_at: '2026-09-18T05:18:57Z'
+status: round1-interviewed
 funnel:
   round1_candidates: 10
   round1_advance: 5

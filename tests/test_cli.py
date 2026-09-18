@@ -2,7 +2,8 @@ import json
 
 import pytest
 
-from fake_llm import FakeLLM
+from fake_backend import FakeBackend
+from hire.llm import LLM
 from hire import pipeline
 from hire.cli import main
 from hire.store import Opening
@@ -55,20 +56,45 @@ def test_unknown_opening_lists_the_known_ones(home, capsys):
     assert "quant-qa" in capsys.readouterr().err
 
 
-def test_commands_refuse_to_run_without_credentials(home, capsys, monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("ANTHROPIC_AUTH_TOKEN", raising=False)
-    monkeypatch.setattr("hire.cli.has_credentials", lambda: False)
+def test_commands_refuse_to_run_with_no_usable_backend(home, capsys, monkeypatch):
+    monkeypatch.setattr("hire.backends.detect", lambda: [])
     main(["open", "--id", "x", "--role", "QA", "--brief", "b"])
     assert main(["research", "x"]) == 2
-    assert "ANTHROPIC_API_KEY" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "no usable backend" in err
+    assert "ANTHROPIC_API_KEY" in err and "claude" in err
 
 
-def test_dry_run_needs_no_credentials(home, capsys, monkeypatch):
-    monkeypatch.setattr("hire.cli.has_credentials", lambda: False)
+def test_an_unavailable_backend_says_why(home, capsys, monkeypatch):
+    monkeypatch.setattr("hire.backends.ApiBackend.available", staticmethod(lambda: False))
+    main(["open", "--id", "x", "--role", "QA", "--brief", "b"])
+    assert main(["research", "x", "--backend", "api"]) == 2
+    assert "no Anthropic credentials" in capsys.readouterr().err
+
+
+def test_dry_run_needs_no_backend(home, capsys, monkeypatch):
+    monkeypatch.setattr("hire.backends.detect", lambda: [])
     main(["open", "--id", "x", "--role", "QA", "--brief", "b"])
     assert main(["generate", "x", "--round", "1", "--dry-run"]) == 0
     assert "dry-run" in capsys.readouterr().err
+
+
+def test_backends_command_reports_availability(home, capsys, monkeypatch):
+    monkeypatch.setattr("hire.backends.detect", lambda: ["claude-cli"])
+    assert main(["backends"]) == 0
+    out = capsys.readouterr().out
+    assert "claude-cli" in out
+    assert "would choose: claude-cli" in out
+
+
+def test_backend_choice_can_come_from_the_environment(home, monkeypatch):
+    from hire.backends import BackendError
+
+    monkeypatch.setenv("HIRE_BACKEND", "codex-cli")
+    monkeypatch.setattr("hire.backends.CodexCliBackend.available", classmethod(lambda cls: False))
+    main(["open", "--id", "x", "--role", "QA", "--brief", "b"])
+    # The env var must be what gets rejected, proving it was consulted.
+    assert main(["research", "x"]) == 2
 
 
 def test_status_shows_the_funnel_and_the_next_step(home, capsys):
@@ -120,7 +146,7 @@ def test_shortlist_and_show_and_cost(home, capsys, tmp_path):
     main(["open", "--id", "quant-qa", "--role", "QA", "--brief", "b",
           "--round1-candidates", "4", "--round1-advance", "2"])
     opening = Opening("quant-qa", home)
-    llm = FakeLLM(on_usage=opening.log_usage)
+    llm = LLM(backend=FakeBackend(), on_usage=opening.log_usage)
     pipeline.generate_round1(opening, llm, count=4, concurrency=2)
     prompt = tmp_path / "m.md"
     prompt.write_text("mock project")
@@ -145,7 +171,7 @@ def test_shortlist_and_show_and_cost(home, capsys, tmp_path):
 def test_shortlist_rejects_unknown_ids(home, capsys):
     main(["open", "--id", "q", "--role", "QA", "--brief", "b"])
     opening = Opening("q", home)
-    pipeline.generate_round1(opening, FakeLLM(), count=2, concurrency=1)
+    pipeline.generate_round1(opening, LLM(backend=FakeBackend()), count=2, concurrency=1)
     capsys.readouterr()
     assert main(["shortlist", "q", "--round", "1", "--advance", "c99"]) == 1
     assert "not round-1 candidates" in capsys.readouterr().err
@@ -154,7 +180,7 @@ def test_shortlist_rejects_unknown_ids(home, capsys):
 def test_shortlist_notes_file_may_be_json_per_candidate(home, capsys, tmp_path):
     main(["open", "--id", "q", "--role", "QA", "--brief", "b"])
     opening = Opening("q", home)
-    pipeline.generate_round1(opening, FakeLLM(), count=2, concurrency=1)
+    pipeline.generate_round1(opening, LLM(backend=FakeBackend()), count=2, concurrency=1)
     notes = tmp_path / "notes.json"
     notes.write_text(json.dumps({"c01": "Liked the data hygiene focus."}))
     capsys.readouterr()

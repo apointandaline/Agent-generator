@@ -61,6 +61,44 @@ Edit `variant_axes` in `opening.yaml` to change them. They are the main lever on
 what round 2 explores, and they are worth tailoring per role — the axes that
 matter for a PM agent are not the ones that matter for QA.
 
+## The knowledge base can neutralise your interview question
+
+This is the trap that is easiest to walk into, and the first live run walked
+straight into it.
+
+The `nq-data-analyst` opening asked candidates how they would build a daily NQ
+strategy on a $50k prop account with a $2,000 trailing drawdown. That mandate is
+arithmetically unsound — $2,000 ÷ $20 per NQ point = 100 points of total room,
+against a daily ATR of roughly 410-450 points — and the question was designed so
+that noticing this would separate candidates who know the product from candidates
+reciting a generic backtesting process.
+
+It separated nobody. All ten led with the arithmetic. The advisory scores landed
+in a 0.79-point band, and the `risk_awareness` rubric line came back **9 out of 10
+for every single candidate — a spread of zero.**
+
+The cause was the knowledge base. The `index-futures` entries spell out the sizing
+formula and the MNQ alternative explicitly, and KB material for the role is fed
+into candidate generation — so every candidate's system prompt already contained
+the answer before the question was asked. The question tested retrieval, not
+judgement.
+
+The rule: **a round-1 question must not be answerable from the KB entries that
+role draws on.** Before writing the prompt, grep the entries the opening will
+pull in. If the answer is there, pick one of:
+
+- Move the material out of the KB and let the question discriminate. Candidates
+  who know it from their own archetype are the signal you wanted.
+- Keep the KB and ask something it does not pre-answer — a judgement call, a
+  trade-off with no correct answer, a situation where the candidate must decide
+  what to do about a constraint rather than notice it.
+- Ask the follow-up instead of the question. Everyone can compute 100 points;
+  far fewer can say what they would actually do next and defend it against the
+  obvious objection.
+
+A zero-spread rubric line is the diagnostic. If one comes back flat across the
+slate, that line tested nothing, and the round was narrower than it looked.
+
 ## Choosing what to give candidates
 
 **The mock project (round 1)** should be a real situation with a trap in it. The
@@ -117,6 +155,25 @@ To re-interview a subset rather than the whole slate, use `--only`:
 hire round1 quant-qa --prompt-file second-prompt.md --only c07,c19,c23
 ```
 
+## Choosing a backend
+
+`--backend api` is the cheapest and the only one with schema-enforced structured
+output, so it is the right default when you have a key.
+
+`--backend claude-cli` exists because a CLI subscription is a credential you
+probably already have. It drives `claude -p` as a subprocess, so the funnel runs
+with no API key at all. The trade is cost: every call is a fresh agent session
+carrying ~20k tokens of its own scaffolding, which puts a floor of a few cents on
+even a one-line answer. For a 10-candidate smoke test that is noise; for a
+50-candidate round it is not.
+
+Mixing backends across rounds is fine and often right — the artifacts on disk are
+backend-agnostic. Running the wide round-1 pass on `api` and round 2 on
+`claude-cli` gets you cheap breadth and a real coding agent where it matters.
+
+Concurrency defaults follow the backend: 6 for `api`, 4 for the CLIs, since each
+CLI call spawns a whole process. `--concurrency` overrides it.
+
 ## Limits worth knowing
 
 - **`--allow-exec` is not a sandbox.** Commands are confined to the candidate's
@@ -129,3 +186,8 @@ hire round1 quant-qa --prompt-file second-prompt.md --only c07,c19,c23
   round. Re-run the same command with `--only <ids>` to fill the gaps.
 - **Advisory scores are not comparable across openings.** The scorer calibrates
   within a slate, not across them.
+- **CLI backends cannot be held to a JSON schema.** Their structured replies are
+  recovered by parsing. A malformed reply fails that one call, which is reported
+  and skipped rather than retried.
+- **Codex reports no token usage**, so its ledger rows record the call with zero
+  cost rather than a guess. `hire cost` will under-report a Codex run.

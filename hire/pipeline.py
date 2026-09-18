@@ -11,7 +11,7 @@ from hire.kb import KnowledgeBase
 from hire.llm import LLM, log, parallel
 from hire.report import leaderboard_md, rank
 from hire.store import Doc, Opening, now_iso, read_doc, write_text, write_yaml
-from hire.workspace import Workspace, tools_for
+from hire.workspace import Workspace
 
 
 def _research_text(opening: Opening, limit: int = 30_000) -> str:
@@ -196,7 +196,7 @@ def generate_round1(
         _write_candidate(opening, 1, cid, archetype, result.text)
         return cid
 
-    log(f"Writing {count} candidate agents (concurrency {concurrency})…")
+    log(f"Writing {count} candidate agents via {llm.name} (concurrency {concurrency})…")
     outcomes = parallel(
         indexed, build, concurrency=concurrency, label="candidate", name=lambda item: item[0]
     )
@@ -337,7 +337,8 @@ def run_round1(
         ).write(opening.response_path(1, cid))
         return cid
 
-    log(f"Round 1: interviewing {len(candidates)} candidates (concurrency {concurrency})…")
+    log(f"Round 1: interviewing {len(candidates)} candidates via {llm.name} "
+        f"(concurrency {concurrency})…")
     outcomes = parallel(sorted(candidates), interview, concurrency=concurrency, label="interview")
     done = [value for _, value, error in outcomes if error is None]
     failed = [item for item, _, error in outcomes if error is not None]
@@ -350,6 +351,19 @@ def run_round1(
 # --------------------------------------------------------------------------- #
 # Round 2 — technical, executed
 # --------------------------------------------------------------------------- #
+
+
+def _workspace_note(backend: str) -> str:
+    """How the candidate reaches its files depends on which backend runs it."""
+    if backend == "api":
+        return (
+            "Your workspace is the current directory. Use `write_file`, `read_file` and "
+            "`list_files` with paths relative to it. You cannot reach anything outside it."
+        )
+    return (
+        "Your workspace is the current working directory. Create files there with your "
+        "normal file tools, using paths relative to it. Stay inside it."
+    )
 
 
 def run_round2(
@@ -380,24 +394,19 @@ def run_round2(
             f"(highly variable — sessions that use every turn cost several times this)")
         return []
 
-    tools = tools_for(allow_exec)
-
     def session(cid: str) -> str:
         doc = candidates[cid]
         ws = Workspace(
             opening.workspace(cid), allow_exec=allow_exec, exec_timeout=exec_timeout
         )
-        note = (
-            "Your workspace is the current directory. Use `write_file`, `read_file` and "
-            "`list_files` with paths relative to it. You cannot reach anything outside it."
-        )
-        result, transcript = llm.agent_loop(
+        note = _workspace_note(llm.name)
+        result, transcript = llm.build(
             "round2",
             cfg,
             system=doc.body,
             prompt=prompts.round2_prompt(spec["role"], project, allow_exec, note),
-            tools=tools,
-            execute=ws.execute,
+            workspace=ws,
+            allow_exec=allow_exec,
             max_turns=max_turns,
             label=cid,
         )
@@ -424,7 +433,8 @@ def run_round2(
         ).write(opening.response_path(2, cid))
         return cid
 
-    log(f"Round 2: {len(candidates)} candidates building for real (concurrency {concurrency})…")
+    log(f"Round 2: {len(candidates)} candidates building for real via {llm.name} "
+        f"(concurrency {concurrency})…")
     if allow_exec:
         log("! run_command is ENABLED — candidate-written shell commands will execute on this machine")
     outcomes = parallel(sorted(candidates), session, concurrency=concurrency, label="build")

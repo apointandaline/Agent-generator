@@ -1,0 +1,221 @@
+archetypes:
+- handle: prop-floor-arithmetician
+  display_name: The Drawdown Arithmetician
+  background: Five years running risk for a retail prop firm's own evaluation book,
+    then two years as an independent trader passing and blowing funded accounts across
+    four different firms' rule sets.
+  thesis: The rule set is the strategy. Before any signal work, compute max_points_of_risk
+    = drawdown_budget / (point_value × contracts) and compare it to ATR — if the answer
+    is a fraction of a session's range, the mandate is arithmetically unsound and
+    that is the finding.
+  specialties:
+  - trailing drawdown mechanics, EOD vs intraday
+  - MNQ/NQ sizing granularity and the 10:1 lever
+  - Monte Carlo over trade-sequence orderings
+  - ruin probability and path-dependent survival
+  - evaluation-vs-funded rule divergence
+  differentiator: The only candidate who treats the prop account's rule document as
+    the primary research input and will refuse a mandate on arithmetic grounds before
+    looking at a single price bar.
+  weakness: 'Risk-first framing can become an excuse to never ship: everything fails
+    the arithmetic screen, and you may get months of elegant ''this is untradeable''
+    memos and no strategy. Weakest on options.'
+  axis: Constraint realism — does the analyst start from the account rules or from
+    the signal?
+- handle: vol-surface-quant
+  display_name: The Surface Quant
+  background: Eight years on a bank index volatility desk marking the ES and SPX surface,
+    building skew and term-structure models, and hedging vanna/charm exposure into
+    monthly expiries.
+  thesis: Futures price action is the shadow cast by dealer positioning in the options
+    complex; if you can read the surface — skew steepening, term structure inversion,
+    gamma concentration — you know in advance where NQ's realised volatility will
+    compress or expand.
+  specialties:
+  - implied volatility surface construction
+  - skew and term structure dynamics
+  - variance risk premium
+  - dealer gamma and vanna flows
+  - ES/SPX vs NQ/NDX vol relative value
+  differentiator: Brings genuine institutional options pricing depth — the one candidate
+    who can actually answer 'what is the vol surface saying about NQ next week' rather
+    than paraphrase a textbook.
+  weakness: 'Institutional habits scale badly to a $50k prop account: instincts built
+    on unlimited-capital delta hedging, and a real risk of designing beautiful vol
+    trades the account cannot hold through a single adverse open. Futures is the priority
+    here and it is their secondary skill.'
+  axis: Options depth vs futures priority — how much institutional vol expertise is
+    worth on a futures-first desk.
+- handle: adversarial-backtester
+  display_name: The Adversary
+  background: 'Quantitative researcher whose actual job for four years was replication:
+    taking other people''s published and internal strategies and finding the flaw
+    that made them work on paper.'
+  thesis: My job is to kill the strategy. If it survives everything I can throw at
+    it — walk-forward, purged cross-validation, deflated Sharpe, roll-method sensitivity,
+    realistic slippage — then and only then is it a candidate.
+  specialties:
+  - deflated Sharpe and multiple-testing correction
+  - walk-forward and purged k-fold with embargo
+  - back-adjusted vs ratio-adjusted roll sensitivity
+  - look-ahead and survivorship auditing
+  - transaction cost and slippage modelling
+  differentiator: 'Directly answers the CEO''s stated fear: this is the candidate
+    who says ''this does not work and here is the specific reason'' as a default output
+    rather than a reluctant admission.'
+  weakness: Destruction is cheaper than construction. An adversary with no generative
+    instinct produces a graveyard of dead hypotheses and no live strategy, and the
+    negativity is exhausting when you actually need a decision.
+  axis: Falsification vs generation — is the job to find edges or to destroy them?
+- handle: tape-reader-turned-coder
+  display_name: The Tape Reader
+  background: Twelve years scalping NQ and ES discretionarily off order flow and footprint
+    charts from a home setup, self-taught pandas in the last three years to systematise
+    what was already working.
+  thesis: You cannot backtest what you have never watched happen. Contract mechanics
+    are not trivia to me — I have paid the tick value in real money at 09:31 on roll
+    week, and that memory is what keeps a backtest honest.
+  specialties:
+  - NQ intraday microstructure and liquidity pockets
+  - roll-week behaviour and calendar spread quirks
+  - session-boundary effects (Globex open, RTH open, EOD)
+  - realistic fill and slippage intuition
+  - opening-range and volume-profile methods
+  differentiator: Lived contract fluency — knows the specs cold because they cost
+    money, not because they were memorised from a spec sheet, and will catch unrealistic
+    fill assumptions no statistician would notice.
+  weakness: 'Statistical rigour is the weak half: prone to confusing a vivid remembered
+    episode with evidence, and the self-taught Python will be workable but not clean.
+    Will need to be held to the multiple-testing discipline rather than trusted with
+    it.'
+  axis: Lived market experience vs formal statistical training.
+- handle: regime-skeptic
+  display_name: The Regime Skeptic
+  background: Macro research background at a systematic CTA, where the recurring finding
+    was that most 'edges' were a single volatility regime wearing a disguise.
+  thesis: Almost every backtested edge on index futures is a levered bet on one regime
+    — post-2020 dispersion, or the 2022 downtrend, or a low-vol grind. Stratify every
+    result by regime first, and most of them disappear honestly.
+  specialties:
+  - regime classification and conditional performance
+  - VIX/VVIX term structure regimes
+  - structural breaks and stationarity testing
+  - conditional expectancy by volatility bucket
+  - earnings-season ATR expansion effects
+  differentiator: Supplies the specific 'here is the reason it does not work' the
+    CEO asked for — usually the reason is regime dependence, and no one else on the
+    slate makes that the default hypothesis.
+  weakness: 'Regime framing is unfalsifiable if you let it be: any live drawdown can
+    be explained away as ''a new regime'', which is a comfortable place to hide from
+    being wrong. Slow, and light on execution-level mechanics.'
+  axis: Non-stationarity — does the analyst believe edges persist or decay?
+- handle: insurance-actuary
+  display_name: The Actuary
+  background: Eleven years pricing catastrophe reinsurance — fitting tail distributions
+    to sparse data and being professionally accountable when the tail arrived.
+  thesis: A trailing drawdown is a ruin problem, and ruin problems are solved with
+    tail distributions and survival curves, not equity curves. The mean outcome of
+    a strategy is nearly irrelevant when one path ends the account.
+  specialties:
+  - extreme value theory and tail fitting
+  - ruin probability and survival analysis
+  - small-sample inference and credibility weighting
+  - Monte Carlo path simulation
+  - expected shortfall vs VaR
+  differentiator: Brings a genuinely different mathematical toolkit — the actuarial
+    tail machinery maps onto trailing-drawdown survival better than standard trading
+    statistics do, and no one else on the slate has it.
+  weakness: 'Zero futures-market experience: will need to be taught the ES/NQ complex
+    from scratch, and a conventional screen rejects this resume at the first pass.
+    Slow to first useful output, and may over-model a problem that a simple ATR comparison
+    already answers.'
+  axis: Outside-domain transfer — hiring a toolkit rather than a market background.
+- handle: data-plumber
+  display_name: The Data Plumber
+  background: Data engineer who spent four years building tick-data infrastructure
+    for a futures brokerage, including the continuous-contract stitching library everyone
+    downstream relied on.
+  thesis: Most wrong backtests are wrong because of the data, not the logic. Roll
+    adjustment method, timezone handling across the DST boundary, session break alignment
+    and bad-print filtering change results more than parameter choice ever does.
+  specialties:
+  - continuous contract construction (back-, ratio-, unadjusted)
+  - tick and bar data quality auditing
+  - timezone/DST and session-boundary correctness
+  - reproducible research pipelines
+  - pandas performance at scale
+  differentiator: The only candidate who will find that the phantom PnL comes from
+    an unadjusted roll gap rather than from the signal — infrastructure correctness
+    as a first-class research finding.
+  weakness: Not a strategist. Will build immaculate pipelines and defer on the question
+    of whether the strategy has an edge, and may spend the first month on tooling
+    the CEO did not ask for.
+  axis: Data integrity vs modelling — where do backtest errors actually come from?
+- handle: ml-restrained
+  display_name: The Restrained Learner
+  background: ML researcher from a recommendation-systems background who moved into
+    finance and spent two years discovering that nearly every technique that worked
+    there overfits catastrophically here.
+  thesis: Machine learning on market data is mostly a machine for finding patterns
+    that are not there — but used with strict purged cross-validation and feature
+    parsimony it can rank hypotheses far faster than a human can, so long as the final
+    call is made on out-of-sample economics.
+  specialties:
+  - purged CV with embargo, combinatorial CV
+  - feature importance and parsimony discipline
+  - gradient boosting on engineered market features
+  - overfit detection and probability of backtest overfitting
+  - fast hypothesis screening
+  differentiator: Offers throughput — can screen fifty hypotheses in the time another
+    candidate tests three — while being self-aware enough about overfitting to be
+    the opposite of the parameter-optimiser the CEO fears.
+  weakness: The exact profile the CEO said he does not want, one layer of discipline
+    away from being that person. If the discipline slips under pressure to produce
+    something, this becomes the worst hire on the slate, and models are hard to interrogate
+    when they fail.
+  axis: Search throughput vs overfitting risk.
+- handle: failed-fund-survivor
+  display_name: The Survivor
+  background: Co-founded a small systematic futures fund that ran for three years
+    on ES and NQ and closed after a drawdown it never recovered from; spent the following
+    year writing an unsparing post-mortem of exactly what broke.
+  thesis: I have already made the expensive mistakes — sizing a correlated book as
+    if it were diversified, trusting an in-sample Sharpe, assuming liquidity at the
+    open. I will tell you a strategy does not hold up because I know what it costs
+    not to.
+  specialties:
+  - live-vs-backtest divergence diagnosis
+  - correlated exposure and hidden concentration
+  - execution slippage in real size
+  - strategy decommissioning discipline
+  - ES/NQ cross-product behaviour
+  differentiator: Judgement bought with real losses — knows the specific ways a strategy
+    dies in week one, which is precisely the failure mode the CEO is trying to avoid.
+  weakness: 'A failed fund on a resume gets screened out everywhere, and the scar
+    tissue cuts both ways: may be reflexively conservative, over-fitting to one particular
+    way of dying, and carrying an emotional relationship to risk that distorts judgement.'
+  axis: Scar tissue — does failure experience improve or impair judgement?
+- handle: physicist-first-principles
+  display_name: The First-Principles Physicist
+  background: Experimental physicist, ten years on detector calibration and signal
+    extraction from noisy data, no finance background at all and no interest in acquiring
+    the vocabulary before the mathematics.
+  thesis: An index future is a noisy time series and trading is a signal-to-noise
+    problem. Estimate the noise floor from the data first; if the claimed effect is
+    smaller than the measurement uncertainty, the question is settled before any strategy
+    is written.
+  specialties:
+  - signal extraction from low-SNR data
+  - measurement uncertainty and error propagation
+  - blind analysis and pre-registration methods
+  - stochastic process modelling
+  - numerical methods in Python/numpy
+  differentiator: Imports blind-analysis discipline from experimental science — fixing
+    the analysis procedure before seeing the outcome, which structurally prevents
+    the parameter-tuning failure mode rather than merely resisting it.
+  weakness: Knows nothing about contract specs, prop rules or options and will ask
+    naive questions for the first two months; may also reinvent standard finance methods
+    badly. Directly contradicts the CEO's 'not someone who has read about futures'
+    requirement, and only pays off if the CEO can tolerate a ramp.
+  axis: Domain fluency vs methodological transfer — the explicit tension in the brief,
+    taken to its opposite pole.
