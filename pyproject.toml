@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hire"
+version = "0.1.0"
+description = "Interview-driven generator for specialized AI agents"
+requires-python = ">=3.10"
+dependencies = ["anthropic>=0.70", "PyYAML>=6.0"]
+
+[project.scripts]
+hire = "hire.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["hire*"]

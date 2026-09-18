@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+.DS_Store
+
+# Round-2 candidate workspaces can get large and are regenerable.
+# Comment this out if you want executed artifacts committed.
+openings/*/round2/workspaces/
