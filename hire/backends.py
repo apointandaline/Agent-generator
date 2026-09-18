@@ -33,6 +33,10 @@ from hire.config import StageConfig, price
 
 DEFAULT_TIMEOUT = 900
 BUILD_TIMEOUT = 2400
+#: Research calls do heavy web search and routinely exceed the default text
+#: timeout on the CLI backends. Retrying at the same timeout after a timeout
+#: cannot help, so this stage gets its own budget.
+RESEARCH_TIMEOUT = 1800
 
 #: Tools the Claude CLI must not touch during a text-only call.
 _TEXT_DISALLOWED = (
@@ -316,7 +320,12 @@ class SubprocessBackend(Backend):
         except FileNotFoundError as exc:
             raise BackendError(f"{self.binary} is not installed or not on PATH") from exc
         except subprocess.TimeoutExpired as exc:
-            raise RetryableBackendError(f"{self.binary} timed out after {timeout}s") from exc
+            # A timeout is not transient: retrying at the same budget will
+            # hit the same wall. Fail loudly so the caller sees it and can
+            # widen the timeout for this stage.
+            raise BackendError(
+                f"{self.binary} timed out after {timeout}s (raise the stage timeout)"
+            ) from exc
         if proc.returncode != 0 and not allow_failure:
             detail = (proc.stderr or proc.stdout or "").strip()[-400:]
             raise BackendError(f"{self.binary} exited {proc.returncode}: {detail}")
@@ -455,7 +464,11 @@ class ClaudeCliBackend(SubprocessBackend):
             "WebSearch,WebFetch",
             "--disable-slash-commands",
         ]
-        result = self._invoke(argv, spec.prompt, spec.timeout, cfg=spec.cfg, label=spec.label)
+        # Web-search research routinely exceeds the default text timeout on
+        # the CLI. Retrying at the same too-small budget cannot succeed, so
+        # grow the budget for this call rather than looping.
+        timeout = max(spec.timeout, RESEARCH_TIMEOUT)
+        result = self._invoke(argv, spec.prompt, timeout, cfg=spec.cfg, label=spec.label)
         return result, _sources_from_markdown(result.text)
 
     def build(self, spec: CallSpec, workspace, allow_exec: bool, max_turns: int):

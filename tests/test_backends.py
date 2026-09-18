@@ -359,15 +359,16 @@ def test_the_error_message_is_the_reason_not_a_json_dump(monkeypatch):
     assert len(message) < 200
 
 
-def test_a_timeout_is_treated_as_retryable(monkeypatch):
+def test_a_timeout_is_not_retried(monkeypatch):
+    """Retrying at the same timeout budget cannot help — surface the error."""
     import subprocess as sp
 
-    from hire.backends import RetryableBackendError
+    from hire.backends import BackendError
 
     def boom(argv, **kwargs):
         raise sp.TimeoutExpired(cmd="claude", timeout=1)
 
     monkeypatch.setattr("hire.backends.subprocess.run", boom)
     monkeypatch.setattr("hire.backends.time.sleep", lambda s: None)
-    with pytest.raises(RetryableBackendError, match="timed out"):
+    with pytest.raises(BackendError, match="timed out"):
         ClaudeCliBackend().complete(spec())
